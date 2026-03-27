@@ -3,7 +3,7 @@
 import { useParams, notFound } from "next/navigation";
 import Link from "next/link";
 import { useState, useMemo } from "react";
-import { dummyProjects, type Project, type ProjectTask } from "../../../src/data/dummyProjects";
+import { dummyProjects, type Project, type ProjectTask, type TaskComment } from "../../../src/data/dummyProjects";
 import ProgressWheel from "../../../src/components/ProgressWheel";
 import { ToastContainer, useToast } from "../../../src/components/Toast";
 
@@ -45,6 +45,10 @@ export default function ProjectDetailPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitSuccess, setSubmitSuccess] = useState(false);
   
+  // Task detail modal state
+  const [selectedTask, setSelectedTask] = useState<ProjectTask | null>(null);
+  const [newComment, setNewComment] = useState("");
+
   // Chat state
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
@@ -77,6 +81,43 @@ export default function ProjectDetailPage() {
     );
     
     toast.success(`Task "${task.title}" completed!`);
+    
+    // Update selected task if it's the one being completed
+    if (selectedTask?.id === taskId) {
+      setSelectedTask({ ...selectedTask, completed: true, progressPercentage: 100 });
+    }
+  };
+
+  const addComment = (taskId: string, text: string) => {
+    if (!text.trim()) return;
+    
+    const newCommentObj: TaskComment = {
+      id: `comment-${Date.now()}`,
+      user: "You",
+      text: text.trim(),
+      timestamp: new Date(),
+    };
+    
+    setTasks((prev) =>
+      prev.map((t) => {
+        if (t.id !== taskId) return t;
+        return {
+          ...t,
+          comments: [...t.comments, newCommentObj],
+        };
+      })
+    );
+    
+    // Update selected task to show new comment
+    if (selectedTask?.id === taskId) {
+      setSelectedTask({
+        ...selectedTask,
+        comments: [...selectedTask.comments, newCommentObj],
+      });
+    }
+    
+    setNewComment("");
+    toast.success("Comment added!");
   };
 
   const completedCount = useMemo(() => tasks.filter((t) => t.completed).length, [tasks]);
@@ -372,7 +413,7 @@ export default function ProjectDetailPage() {
                       onDragStart={t.completed ? undefined : handleDragStartTask(t.id)}
                       onClick={() => {
                         if (draggingTaskId) return;
-                        if (!t.completed) completeTask(t.id);
+                        setSelectedTask(t);
                       }}
                       onDragEnd={() => {
                         setDraggingTaskId(null);
@@ -384,7 +425,7 @@ export default function ProjectDetailPage() {
                         isDragging
                           ? "cursor-grabbing opacity-60 scale-[1.03] border-[rgba(96,165,250,0.55)] bg-[rgba(96,165,250,0.10)]"
                           : t.completed
-                          ? "cursor-default"
+                          ? "cursor-pointer"
                           : "cursor-grab"
                       }`}
                     >
@@ -423,6 +464,156 @@ export default function ProjectDetailPage() {
           </aside>
         </section>
       </main>
+
+      {/* Task Detail Modal */}
+      {selectedTask && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+          onClick={() => setSelectedTask(null)}
+        >
+          <div
+            className="card mx-4 w-full max-w-lg max-h-[85vh] overflow-hidden flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-start justify-between border-b border-border p-6">
+              <div className="flex-1 min-w-0 pr-4">
+                <p className="text-xs font-semibold tracking-wide text-muted">TASK</p>
+                <h2 className="mt-1 text-xl font-semibold text-foreground">{selectedTask.title}</h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedTask(null)}
+                className="rounded-lg p-2 text-muted transition-colors hover:bg-surface2 hover:text-foreground"
+                aria-label="Close"
+              >
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 overflow-auto p-6">
+              {/* Task Info */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="rounded-[14px] border border-border bg-[rgba(255,255,255,0.03)] p-4">
+                  <p className="text-xs font-semibold text-muted">ASSIGNED TO</p>
+                  <p className="mt-2 text-lg font-semibold text-foreground">{selectedTask.assignedUser}</p>
+                </div>
+                <div className="rounded-[14px] border border-border bg-[rgba(255,255,255,0.03)] p-4">
+                  <p className="text-xs font-semibold text-muted">DUE DATE</p>
+                  <p className="mt-2 text-lg font-semibold text-foreground">{selectedTask.dueDate}</p>
+                </div>
+              </div>
+
+              {/* Progress */}
+              <div className="mt-4 rounded-[14px] border border-border bg-[rgba(255,255,255,0.03)] p-4">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-semibold text-muted">PROGRESS</p>
+                  <span className={`rounded-full border px-2 py-1 text-[11px] font-semibold ${
+                    selectedTask.completed
+                      ? "border-[rgba(96,165,250,0.35)] bg-[rgba(96,165,250,0.12)] text-foreground"
+                      : "border-border bg-[rgba(255,255,255,0.03)] text-muted"
+                  }`}>
+                    {selectedTask.completed ? "Done" : "Active"}
+                  </span>
+                </div>
+                <div className="mt-3 h-2 overflow-hidden rounded-full bg-surface2">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-accent to-accent2"
+                    style={{ width: `${selectedTask.progressPercentage}%` }}
+                  />
+                </div>
+                <p className="mt-2 text-sm text-muted">{selectedTask.progressPercentage}% complete</p>
+              </div>
+
+              {/* Comments Section */}
+              <div className="mt-6">
+                <p className="text-xs font-semibold tracking-wide text-muted">COMMENTS</p>
+                <div className="mt-3 space-y-3 max-h-[200px] overflow-auto">
+                  {selectedTask.comments.length === 0 ? (
+                    <div className="rounded-[12px] border border-border bg-[rgba(255,255,255,0.03)] p-4 text-center">
+                      <p className="text-sm text-muted">No comments yet</p>
+                    </div>
+                  ) : (
+                    selectedTask.comments.map((comment) => (
+                      <div
+                        key={comment.id}
+                        className="rounded-[12px] border border-border bg-[rgba(255,255,255,0.03)] p-3"
+                      >
+                        <div className="flex items-center justify-between">
+                          <p className="text-sm font-semibold text-foreground">{comment.user}</p>
+                          <p className="text-xs text-muted">
+                            {comment.timestamp.toLocaleDateString()}
+                          </p>
+                        </div>
+                        <p className="mt-1 text-sm text-muted">{comment.text}</p>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                {/* Add Comment Input */}
+                <div className="mt-4 flex gap-2">
+                  <input
+                    type="text"
+                    className="input flex-1"
+                    placeholder="Add a comment..."
+                    value={newComment}
+                    onChange={(e) => setNewComment(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        addComment(selectedTask.id, newComment);
+                      }
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => addComment(selectedTask.id, newComment)}
+                    className="rounded-[12px] border border-border bg-[rgba(255,255,255,0.03)] px-4 py-2 text-sm font-semibold text-foreground transition-colors hover:bg-[rgba(255,255,255,0.06)]"
+                    disabled={!newComment.trim()}
+                  >
+                    Add
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer - Mark Done */}
+            <div className="border-t border-border p-6">
+              <button
+                type="button"
+                onClick={() => {
+                  if (!selectedTask.completed) {
+                    completeTask(selectedTask.id);
+                  }
+                }}
+                disabled={selectedTask.completed}
+                className={`flex w-full items-center justify-center gap-3 rounded-[12px] border px-4 py-3 text-sm font-semibold transition-colors ${
+                  selectedTask.completed
+                    ? "border-[rgba(96,165,250,0.35)] bg-[rgba(96,165,250,0.12)] text-foreground cursor-default"
+                    : "border-border bg-[rgba(255,255,255,0.03)] text-foreground hover:bg-[rgba(255,255,255,0.06)]"
+                }`}
+              >
+                <span className={`flex h-5 w-5 items-center justify-center rounded border ${
+                  selectedTask.completed
+                    ? "border-accent2 bg-accent2"
+                    : "border-muted"
+                }`}>
+                  {selectedTask.completed && (
+                    <svg className="h-3 w-3 text-background" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                  )}
+                </span>
+                {selectedTask.completed ? "Task Completed" : "Mark Done"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Chat Button */}
       <button

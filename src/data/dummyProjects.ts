@@ -1,9 +1,18 @@
+export type TaskComment = {
+  id: string;
+  user: string;
+  text: string;
+  timestamp: Date;
+};
+
 export type ProjectTask = {
   id: string;
   title: string;
   progressPercentage: number;
   assignedUser: string;
   completed: boolean;
+  dueDate: string;
+  comments: TaskComment[];
 };
 
 export type Project = {
@@ -27,6 +36,11 @@ export const dummyProjects: Project[] = [
         progressPercentage: 90,
         assignedUser: "Nina",
         completed: true,
+        dueDate: "15th Nov",
+        comments: [
+          { id: "c1", user: "Quinn", text: "Great work on the color palette!", timestamp: new Date("2024-11-10") },
+          { id: "c2", user: "Amin", text: "The shadows look perfect.", timestamp: new Date("2024-11-12") },
+        ],
       },
       {
         id: "task-layout-structure",
@@ -34,6 +48,10 @@ export const dummyProjects: Project[] = [
         progressPercentage: 80,
         assignedUser: "Quinn",
         completed: true,
+        dueDate: "18th Nov",
+        comments: [
+          { id: "c3", user: "Nina", text: "Nice grid system!", timestamp: new Date("2024-11-15") },
+        ],
       },
       {
         id: "task-micro-interactions",
@@ -41,6 +59,11 @@ export const dummyProjects: Project[] = [
         progressPercentage: 45,
         assignedUser: "Amin",
         completed: false,
+        dueDate: "22nd Nov",
+        comments: [
+          { id: "c4", user: "Quinn", text: "Looking forward to seeing the animations.", timestamp: new Date("2024-11-14") },
+          { id: "c5", user: "Nina", text: "Let me know if you need help with timing.", timestamp: new Date("2024-11-16") },
+        ],
       },
     ],
   },
@@ -56,6 +79,10 @@ export const dummyProjects: Project[] = [
         progressPercentage: 100,
         assignedUser: "Sam",
         completed: true,
+        dueDate: "10th Nov",
+        comments: [
+          { id: "c6", user: "Tariq", text: "The visualization looks amazing!", timestamp: new Date("2024-11-08") },
+        ],
       },
       {
         id: "task-status-panels",
@@ -63,6 +90,10 @@ export const dummyProjects: Project[] = [
         progressPercentage: 60,
         assignedUser: "Tariq",
         completed: false,
+        dueDate: "20th Nov",
+        comments: [
+          { id: "c7", user: "Sam", text: "Need help with the quality metrics?", timestamp: new Date("2024-11-12") },
+        ],
       },
       {
         id: "task-live-banners",
@@ -70,6 +101,8 @@ export const dummyProjects: Project[] = [
         progressPercentage: 30,
         assignedUser: "Amin",
         completed: false,
+        dueDate: "25th Nov",
+        comments: [],
       },
     ],
   },
@@ -85,6 +118,10 @@ export const dummyProjects: Project[] = [
         progressPercentage: 70,
         assignedUser: "Quinn",
         completed: true,
+        dueDate: "12th Nov",
+        comments: [
+          { id: "c8", user: "Nina", text: "Great job on the connection flow!", timestamp: new Date("2024-11-10") },
+        ],
       },
       {
         id: "task-output-switch",
@@ -92,6 +129,10 @@ export const dummyProjects: Project[] = [
         progressPercentage: 40,
         assignedUser: "Nina",
         completed: false,
+        dueDate: "19th Nov",
+        comments: [
+          { id: "c9", user: "Quinn", text: "Let me know if you need the connection API.", timestamp: new Date("2024-11-14") },
+        ],
       },
       {
         id: "task-accessibility",
@@ -99,6 +140,10 @@ export const dummyProjects: Project[] = [
         progressPercentage: 20,
         assignedUser: "Sam",
         completed: false,
+        dueDate: "28th Nov",
+        comments: [
+          { id: "c10", user: "Tariq", text: "Remember to test with screen readers.", timestamp: new Date("2024-11-13") },
+        ],
       },
     ],
   },
@@ -114,6 +159,10 @@ export const dummyProjects: Project[] = [
         progressPercentage: 85,
         assignedUser: "Tariq",
         completed: true,
+        dueDate: "8th Nov",
+        comments: [
+          { id: "c11", user: "Nina", text: "The type scale is perfect!", timestamp: new Date("2024-11-06") },
+        ],
       },
       {
         id: "task-card-states",
@@ -121,6 +170,10 @@ export const dummyProjects: Project[] = [
         progressPercentage: 55,
         assignedUser: "Amin",
         completed: false,
+        dueDate: "21st Nov",
+        comments: [
+          { id: "c12", user: "Tariq", text: "Consider adding a slight glow on hover.", timestamp: new Date("2024-11-15") },
+        ],
       },
       {
         id: "task-empty-states",
@@ -128,6 +181,8 @@ export const dummyProjects: Project[] = [
         progressPercentage: 35,
         assignedUser: "Quinn",
         completed: false,
+        dueDate: "26th Nov",
+        comments: [],
       },
     ],
   },
@@ -143,6 +198,11 @@ export const dummyProjects: Project[] = [
         progressPercentage: 100,
         assignedUser: "Nina",
         completed: true,
+        dueDate: "5th Nov",
+        comments: [
+          { id: "c13", user: "Sam", text: "Content looks great!", timestamp: new Date("2024-11-04") },
+          { id: "c14", user: "Amin", text: "Love the sample tracks.", timestamp: new Date("2024-11-05") },
+        ],
       },
       {
         id: "task-demo-script",
@@ -150,6 +210,10 @@ export const dummyProjects: Project[] = [
         progressPercentage: 80,
         assignedUser: "Sam",
         completed: true,
+        dueDate: "14th Nov",
+        comments: [
+          { id: "c15", user: "Nina", text: "Nice flow on the tour!", timestamp: new Date("2024-11-12") },
+        ],
       },
       {
         id: "task-performance-check",
@@ -157,6 +221,10 @@ export const dummyProjects: Project[] = [
         progressPercentage: 50,
         assignedUser: "Tariq",
         completed: false,
+        dueDate: "30th Nov",
+        comments: [
+          { id: "c16", user: "Quinn", text: "Let me know if you find any bottlenecks.", timestamp: new Date("2024-11-18") },
+        ],
       },
     ],
   },
