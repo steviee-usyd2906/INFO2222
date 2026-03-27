@@ -55,6 +55,15 @@ export default function ProjectDetailPage() {
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Spec editing state
+  const [isEditingSpec, setIsEditingSpec] = useState(false);
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  const [editTaskTitle, setEditTaskTitle] = useState("");
+  const [editTaskAssignedUser, setEditTaskAssignedUser] = useState("");
+  const [editTaskDueDate, setEditTaskDueDate] = useState("");
+  const [newSpecTask, setNewSpecTask] = useState({ title: "", assignedUser: "", dueDate: "" });
+  const [isAddingTask, setIsAddingTask] = useState(false);
+
   // Chat state
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
@@ -218,6 +227,63 @@ export default function ProjectDetailPage() {
   };
 
   const dropHintOpacity = clamp01(wheelProgress / 100);
+
+  // Spec task editing functions
+  const startEditTask = (task: ProjectTask) => {
+    setEditingTaskId(task.id);
+    setEditTaskTitle(task.title);
+    setEditTaskAssignedUser(task.assignedUser);
+    setEditTaskDueDate(task.dueDate);
+  };
+
+  const saveEditTask = () => {
+    if (!editingTaskId || !editTaskTitle.trim()) return;
+    
+    setTasks((prev) =>
+      prev.map((t) =>
+        t.id === editingTaskId
+          ? { ...t, title: editTaskTitle, assignedUser: editTaskAssignedUser || "Unassigned", dueDate: editTaskDueDate || "TBD" }
+          : t
+      )
+    );
+    
+    setEditingTaskId(null);
+    setEditTaskTitle("");
+    setEditTaskAssignedUser("");
+    setEditTaskDueDate("");
+    toast.success("Task updated!");
+  };
+
+  const cancelEditTask = () => {
+    setEditingTaskId(null);
+    setEditTaskTitle("");
+    setEditTaskAssignedUser("");
+    setEditTaskDueDate("");
+  };
+
+  const deleteSpecTask = (taskId: string) => {
+    setTasks((prev) => prev.filter((t) => t.id !== taskId));
+    toast.success("Task removed!");
+  };
+
+  const addSpecTask = () => {
+    if (!newSpecTask.title.trim()) return;
+    
+    const newTask: ProjectTask = {
+      id: `task-${Date.now()}`,
+      title: newSpecTask.title,
+      progressPercentage: 0,
+      assignedUser: newSpecTask.assignedUser || "Unassigned",
+      completed: false,
+      dueDate: newSpecTask.dueDate || "TBD",
+      comments: [],
+    };
+    
+    setTasks((prev) => [...prev, newTask]);
+    setNewSpecTask({ title: "", assignedUser: "", dueDate: "" });
+    setIsAddingTask(false);
+    toast.success("Task added!");
+  };
 
   return (
     <>
@@ -863,26 +929,49 @@ export default function ProjectDetailPage() {
       {isSpecModalOpen && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-          onClick={() => setIsSpecModalOpen(false)}
+          onClick={() => {
+            setIsSpecModalOpen(false);
+            setIsEditingSpec(false);
+            setEditingTaskId(null);
+            setIsAddingTask(false);
+          }}
         >
-          <div className="card mx-4 w-full max-w-2xl max-h-[80vh] overflow-auto p-6" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-start justify-between">
+          <div className="card mx-4 w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start justify-between border-b border-border p-6">
               <div>
                 <h2 className="text-xl font-semibold text-foreground">Project Specification</h2>
                 <p className="mt-1 text-sm text-muted">{initialProject.name}</p>
               </div>
-              <button
-                type="button"
-                onClick={() => setIsSpecModalOpen(false)}
-                className="rounded-lg p-2 text-muted transition-colors hover:bg-surface2 hover:text-foreground"
-              >
-                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsEditingSpec(!isEditingSpec)}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
+                    isEditingSpec
+                      ? "bg-accent2/20 text-accent2 border border-accent2/30"
+                      : "bg-[rgba(255,255,255,0.03)] text-muted hover:text-foreground border border-border"
+                  }`}
+                >
+                  {isEditingSpec ? "Done Editing" : "Edit Spec"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsSpecModalOpen(false);
+                    setIsEditingSpec(false);
+                    setEditingTaskId(null);
+                    setIsAddingTask(false);
+                  }}
+                  className="rounded-lg p-2 text-muted transition-colors hover:bg-surface2 hover:text-foreground"
+                >
+                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
             </div>
 
-            <div className="mt-6 space-y-6">
+            <div className="flex-1 overflow-auto p-6 space-y-6">
               <div>
                 <h3 className="text-sm font-semibold text-muted">DESCRIPTION</h3>
                 <p className="mt-2 text-sm leading-relaxed text-foreground">{initialProject.shortDescription}</p>
@@ -907,16 +996,171 @@ export default function ProjectDetailPage() {
               </div>
 
               <div>
-                <h3 className="text-sm font-semibold text-muted">TASK BREAKDOWN</h3>
-                <div className="mt-2 space-y-2">
-                  {initialProject.tasks.map((task) => (
-                    <div key={task.id} className="rounded-[12px] border border-border bg-[rgba(255,255,255,0.03)] p-3">
-                      <div className="flex items-center justify-between">
-                        <p className="text-sm font-semibold text-foreground">{task.title}</p>
-                        <span className="text-xs text-muted">{task.assignedUser}</span>
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-semibold text-muted">TASK BREAKDOWN</h3>
+                  {isEditingSpec && (
+                    <button
+                      type="button"
+                      onClick={() => setIsAddingTask(true)}
+                      className="flex items-center gap-1 rounded-full border border-accent2/30 bg-accent2/10 px-3 py-1 text-xs font-semibold text-accent2 transition-colors hover:bg-accent2/20"
+                    >
+                      <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                      </svg>
+                      Add Task
+                    </button>
+                  )}
+                </div>
+
+                {/* Add new task form */}
+                {isAddingTask && (
+                  <div className="mt-3 rounded-[12px] border border-accent2/30 bg-accent2/5 p-4">
+                    <p className="text-xs font-semibold text-accent2 mb-3">NEW TASK</p>
+                    <div className="space-y-3">
+                      <input
+                        type="text"
+                        className="input py-2 text-sm"
+                        placeholder="Task title..."
+                        value={newSpecTask.title}
+                        onChange={(e) => setNewSpecTask((prev) => ({ ...prev, title: e.target.value }))}
+                      />
+                      <div className="grid grid-cols-2 gap-3">
+                        <input
+                          type="text"
+                          className="input py-2 text-sm"
+                          placeholder="Assigned to..."
+                          value={newSpecTask.assignedUser}
+                          onChange={(e) => setNewSpecTask((prev) => ({ ...prev, assignedUser: e.target.value }))}
+                        />
+                        <input
+                          type="text"
+                          className="input py-2 text-sm"
+                          placeholder="Due date..."
+                          value={newSpecTask.dueDate}
+                          onChange={(e) => setNewSpecTask((prev) => ({ ...prev, dueDate: e.target.value }))}
+                        />
+                      </div>
+                      <div className="flex justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsAddingTask(false);
+                            setNewSpecTask({ title: "", assignedUser: "", dueDate: "" });
+                          }}
+                          className="rounded-[10px] border border-border bg-[rgba(255,255,255,0.03)] px-3 py-1.5 text-xs font-semibold text-muted transition-colors hover:text-foreground"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={addSpecTask}
+                          disabled={!newSpecTask.title.trim()}
+                          className="rounded-[10px] border border-accent2/30 bg-accent2/20 px-3 py-1.5 text-xs font-semibold text-accent2 transition-colors hover:bg-accent2/30 disabled:opacity-50"
+                        >
+                          Add Task
+                        </button>
                       </div>
                     </div>
-                  ))}
+                  </div>
+                )}
+
+                <div className="mt-3 space-y-2 max-h-[280px] overflow-auto">
+                  {tasks.length === 0 ? (
+                    <div className="rounded-[12px] border border-dashed border-border bg-[rgba(255,255,255,0.02)] p-6 text-center">
+                      <p className="text-sm text-muted">No tasks yet</p>
+                      <p className="mt-1 text-xs text-muted">Click "Add Task" to create spec tasks</p>
+                    </div>
+                  ) : (
+                    tasks.map((task) => (
+                      <div key={task.id} className="rounded-[12px] border border-border bg-[rgba(255,255,255,0.03)] p-3">
+                        {editingTaskId === task.id ? (
+                          <div className="space-y-3">
+                            <input
+                              type="text"
+                              className="input py-2 text-sm"
+                              placeholder="Task title..."
+                              value={editTaskTitle}
+                              onChange={(e) => setEditTaskTitle(e.target.value)}
+                            />
+                            <div className="grid grid-cols-2 gap-3">
+                              <input
+                                type="text"
+                                className="input py-2 text-sm"
+                                placeholder="Assigned to..."
+                                value={editTaskAssignedUser}
+                                onChange={(e) => setEditTaskAssignedUser(e.target.value)}
+                              />
+                              <input
+                                type="text"
+                                className="input py-2 text-sm"
+                                placeholder="Due date..."
+                                value={editTaskDueDate}
+                                onChange={(e) => setEditTaskDueDate(e.target.value)}
+                              />
+                            </div>
+                            <div className="flex justify-end gap-2">
+                              <button
+                                type="button"
+                                onClick={cancelEditTask}
+                                className="rounded-[10px] border border-border bg-[rgba(255,255,255,0.03)] px-3 py-1.5 text-xs font-semibold text-muted transition-colors hover:text-foreground"
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                type="button"
+                                onClick={saveEditTask}
+                                disabled={!editTaskTitle.trim()}
+                                className="rounded-[10px] border border-accent2/30 bg-accent2/20 px-3 py-1.5 text-xs font-semibold text-accent2 transition-colors hover:bg-accent2/30 disabled:opacity-50"
+                              >
+                                Save
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-semibold text-foreground">{task.title}</p>
+                              <div className="mt-1 flex items-center gap-3 text-xs text-muted">
+                                <span>{task.assignedUser}</span>
+                                <span className="h-1 w-1 rounded-full bg-border" />
+                                <span>{task.dueDate}</span>
+                                {task.completed && (
+                                  <>
+                                    <span className="h-1 w-1 rounded-full bg-border" />
+                                    <span className="text-accent2">Completed</span>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                            {isEditingSpec && (
+                              <div className="flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => startEditTask(task)}
+                                  className="rounded-lg p-1.5 text-muted transition-colors hover:bg-surface2 hover:text-foreground"
+                                  aria-label="Edit task"
+                                >
+                                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                  </svg>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => deleteSpecTask(task.id)}
+                                  className="rounded-lg p-1.5 text-muted transition-colors hover:bg-[rgba(239,68,68,0.1)] hover:text-red-400"
+                                  aria-label="Delete task"
+                                >
+                                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                  </svg>
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
 
