@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { useRef, useState, useCallback } from "react";
 import type { WheelEvent } from "react";
 import type { Project } from "../data/dummyProjects";
 import Link from "next/link";
@@ -186,45 +186,15 @@ type ProjectCarouselCardProps = {
 };
 
 function ProjectCarouselCard({ project, isActive }: ProjectCarouselCardProps) {
-  const [showUpload, setShowUpload] = useState(false);
-  const [uploadedFiles, setUploadedFiles] = useState<string[]>([]);
-  const [isUploading, setIsUploading] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const handleUploadClick = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setShowUpload(true);
-  };
-
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-    
-    setIsUploading(true);
-    
-    // Simulate upload delay
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    
-    const newFiles = Array.from(files).map((f) => f.name);
-    setUploadedFiles((prev) => [...prev, ...newFiles]);
-    setIsUploading(false);
-    
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
-    }
-  };
-
   return (
-    <>
-      <Link
-        href={`/projects/${project.id}`}
-        className={`group card flex flex-col p-6 cursor-pointer transition-all duration-300 ${
-          isActive
-            ? "w-[320px] h-[360px] shadow-2xl"
-            : "w-[260px] h-[300px]"
-        }`}
-      >
+    <Link
+      href={`/projects/${project.id}`}
+      className={`group card flex flex-col p-6 cursor-pointer transition-all duration-300 ${
+        isActive
+          ? "w-[320px] h-[360px] shadow-2xl"
+          : "w-[260px] h-[300px]"
+      }`}
+    >
         {/* Header */}
         <div className="flex items-start justify-between mb-4">
           <div className="min-w-0 flex-1">
@@ -263,116 +233,6 @@ function ProjectCarouselCard({ project, isActive }: ProjectCarouselCardProps) {
           </div>
         </div>
 
-        {/* Upload Material Button - only on active card */}
-        {isActive && (
-          <button
-            type="button"
-            onClick={handleUploadClick}
-            className="mt-4 flex items-center justify-center gap-2 w-full rounded-[12px] border border-border bg-[rgba(255,255,255,0.03)] px-4 py-3 text-sm font-semibold text-foreground transition-colors hover:bg-[rgba(255,255,255,0.08)] hover:border-accent/30"
-          >
-            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-            </svg>
-            Upload Material
-          </button>
-        )}
-      </Link>
-
-      {/* Upload Modal */}
-      {showUpload && (
-        <div
-          className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm"
-          onClick={() => setShowUpload(false)}
-        >
-          <div
-            className="card mx-4 w-full max-w-md p-6"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h2 className="text-xl font-semibold text-foreground">Upload Material</h2>
-                <p className="text-sm text-muted mt-1">Add files to {project.name}</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowUpload(false)}
-                className="rounded-lg p-2 text-muted transition-colors hover:bg-surface2 hover:text-foreground"
-                aria-label="Close"
-              >
-                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-
-            {/* Upload Area */}
-            <label
-              className={`flex flex-col items-center justify-center w-full h-40 rounded-[14px] border-2 border-dashed transition-colors cursor-pointer ${
-                isUploading
-                  ? "border-accent bg-accent/5"
-                  : "border-border hover:border-accent/50 hover:bg-[rgba(255,255,255,0.03)]"
-              }`}
-            >
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                className="hidden"
-                onChange={handleFileChange}
-                disabled={isUploading}
-              />
-              {isUploading ? (
-                <div className="flex flex-col items-center gap-3">
-                  <span className="h-8 w-8 animate-spin rounded-full border-2 border-accent2 border-t-transparent" />
-                  <p className="text-sm text-muted">Uploading...</p>
-                </div>
-              ) : (
-                <div className="flex flex-col items-center gap-3">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-full bg-surface2">
-                    <svg className="h-6 w-6 text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                    </svg>
-                  </div>
-                  <div className="text-center">
-                    <p className="text-sm font-semibold text-foreground">Click to upload</p>
-                    <p className="text-xs text-muted mt-1">or drag and drop files here</p>
-                  </div>
-                </div>
-              )}
-            </label>
-
-            {/* Uploaded Files List */}
-            {uploadedFiles.length > 0 && (
-              <div className="mt-4">
-                <p className="text-xs font-semibold text-muted mb-2">UPLOADED FILES</p>
-                <div className="space-y-2 max-h-32 overflow-auto">
-                  {uploadedFiles.map((file, idx) => (
-                    <div
-                      key={idx}
-                      className="flex items-center gap-3 rounded-[10px] border border-border bg-[rgba(255,255,255,0.03)] px-3 py-2"
-                    >
-                      <svg className="h-4 w-4 text-accent2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                      <span className="text-sm text-foreground truncate flex-1">{file}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <div className="mt-6 flex justify-end gap-3">
-              <button
-                className="rounded-[12px] border border-border bg-[rgba(255,255,255,0.03)] px-4 py-2 text-sm font-semibold text-foreground transition-colors hover:bg-[rgba(255,255,255,0.06)]"
-                type="button"
-                onClick={() => setShowUpload(false)}
-              >
-                Done
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </>
+        </Link>
   );
 }

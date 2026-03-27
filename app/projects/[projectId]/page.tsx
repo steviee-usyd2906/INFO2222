@@ -2,7 +2,7 @@
 
 import { useParams, notFound } from "next/navigation";
 import Link from "next/link";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import { dummyProjects, type Project, type ProjectTask, type TaskComment } from "../../../src/data/dummyProjects";
 import ProgressWheel from "../../../src/components/ProgressWheel";
 import { ToastContainer, useToast } from "../../../src/components/Toast";
@@ -48,6 +48,12 @@ export default function ProjectDetailPage() {
   // Task detail modal state
   const [selectedTask, setSelectedTask] = useState<ProjectTask | null>(null);
   const [newComment, setNewComment] = useState("");
+
+  // Upload material state
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+  const [uploadedFiles, setUploadedFiles] = useState<string[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Chat state
   const [isChatOpen, setIsChatOpen] = useState(false);
@@ -158,6 +164,25 @@ export default function ProjectDetailPage() {
     setSubmitSuccess(true);
   };
 
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    
+    setIsUploading(true);
+    
+    // Simulate upload delay
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    
+    const newFiles = Array.from(files).map((f) => f.name);
+    setUploadedFiles((prev) => [...prev, ...newFiles]);
+    setIsUploading(false);
+    toast.success(`${newFiles.length} file(s) uploaded successfully!`);
+    
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
   const handleSendMessage = () => {
     if (!chatInput.trim()) return;
     
@@ -261,6 +286,16 @@ export default function ProjectDetailPage() {
                 }}
               >
                 {showMyTasks ? "Show All Tasks" : "My Tasks"}
+              </button>
+              <button
+                className="w-full rounded-[12px] border border-border bg-[rgba(255,255,255,0.03)] px-4 py-3 text-sm font-semibold text-foreground transition-transform duration-200 hover:-translate-y-0.5 focus:outline-none focus-visible:ring-4 focus-visible:ring-[rgba(96,165,250,0.18)] flex items-center justify-center gap-2"
+                type="button"
+                onClick={() => setIsUploadModalOpen(true)}
+              >
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                </svg>
+                Upload Material
               </button>
             </div>
 
@@ -464,6 +499,114 @@ export default function ProjectDetailPage() {
           </aside>
         </section>
       </main>
+
+      {/* Upload Material Modal */}
+      {isUploadModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+          onClick={() => setIsUploadModalOpen(false)}
+        >
+          <div
+            className="card mx-4 w-full max-w-md"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-border p-6">
+              <div>
+                <h2 className="text-xl font-semibold text-foreground">Upload Material</h2>
+                <p className="text-sm text-muted mt-1">Add files to {initialProject.name}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsUploadModalOpen(false)}
+                className="rounded-lg p-2 text-muted transition-colors hover:bg-surface2 hover:text-foreground"
+                aria-label="Close"
+              >
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="p-6">
+              {/* Upload Area */}
+              <label
+                className={`flex flex-col items-center justify-center w-full h-44 rounded-[14px] border-2 border-dashed transition-colors cursor-pointer ${
+                  isUploading
+                    ? "border-accent bg-accent/5"
+                    : "border-border hover:border-accent/50 hover:bg-[rgba(255,255,255,0.03)]"
+                }`}
+              >
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  className="hidden"
+                  onChange={handleFileUpload}
+                  disabled={isUploading}
+                />
+                {isUploading ? (
+                  <div className="flex flex-col items-center gap-3">
+                    <span className="h-10 w-10 animate-spin rounded-full border-2 border-accent2 border-t-transparent" />
+                    <p className="text-sm text-muted">Uploading files...</p>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center gap-3">
+                    <div className="flex h-14 w-14 items-center justify-center rounded-full bg-surface2">
+                      <svg className="h-7 w-7 text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                      </svg>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-sm font-semibold text-foreground">Click to upload</p>
+                      <p className="text-xs text-muted mt-1">or drag and drop files here</p>
+                    </div>
+                  </div>
+                )}
+              </label>
+
+              {/* Uploaded Files List */}
+              {uploadedFiles.length > 0 && (
+                <div className="mt-5">
+                  <p className="text-xs font-semibold tracking-wide text-muted mb-3">UPLOADED FILES ({uploadedFiles.length})</p>
+                  <div className="space-y-2 max-h-40 overflow-auto">
+                    {uploadedFiles.map((file, idx) => (
+                      <div
+                        key={idx}
+                        className="flex items-center gap-3 rounded-[12px] border border-border bg-[rgba(255,255,255,0.03)] px-4 py-3"
+                      >
+                        <svg className="h-5 w-5 text-accent2 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <span className="text-sm text-foreground truncate flex-1">{file}</span>
+                        <button
+                          type="button"
+                          onClick={() => setUploadedFiles((prev) => prev.filter((_, i) => i !== idx))}
+                          className="text-muted hover:text-foreground transition-colors"
+                          aria-label="Remove file"
+                        >
+                          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="border-t border-border p-6 flex justify-end gap-3">
+              <button
+                className="rounded-[12px] border border-border bg-[rgba(255,255,255,0.03)] px-4 py-2 text-sm font-semibold text-foreground transition-colors hover:bg-[rgba(255,255,255,0.06)]"
+                type="button"
+                onClick={() => setIsUploadModalOpen(false)}
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Task Detail Modal */}
       {selectedTask && (
