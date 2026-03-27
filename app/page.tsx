@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { dummyProjects, type Project, type ProjectTask } from "../src/data/dummyProjects";
+import { dummyProjects } from "../src/data/dummyProjects";
 import ProjectShelf from "../src/components/ProjectShelf";
 
 export default function Home() {
@@ -9,20 +9,11 @@ export default function Home() {
   const [isConnectModalOpen, setIsConnectModalOpen] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
-  
-  // Create project modal state
-  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const [projects, setProjects] = useState<Project[]>(dummyProjects);
-  const [newProject, setNewProject] = useState({
-    name: "",
-    description: "",
-  });
-  const [isCreating, setIsCreating] = useState(false);
 
   const filteredProjects = useMemo(() => {
-    if (!searchQuery.trim()) return projects;
+    if (!searchQuery.trim()) return dummyProjects;
     const query = searchQuery.toLowerCase();
-    return projects.filter(
+    return dummyProjects.filter(
       (project) =>
         project.name.toLowerCase().includes(query) ||
         project.shortDescription.toLowerCase().includes(query) ||
@@ -32,7 +23,7 @@ export default function Home() {
             task.assignedUser.toLowerCase().includes(query)
         )
     );
-  }, [searchQuery, projects]);
+  }, [searchQuery]);
 
   const handleConnect = async () => {
     setIsConnecting(true);
@@ -45,26 +36,6 @@ export default function Home() {
 
   const handleDisconnect = () => {
     setIsConnected(false);
-  };
-
-  const handleCreateProject = async () => {
-    if (!newProject.name.trim()) return;
-    
-    setIsCreating(true);
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    
-    const project: Project = {
-      id: `proj-${Date.now()}`,
-      name: newProject.name.trim(),
-      shortDescription: newProject.description.trim() || "New project description",
-      progressPercentage: 0,
-      tasks: [],
-    };
-    
-    setProjects((prev) => [project, ...prev]);
-    setNewProject({ name: "", description: "" });
-    setIsCreating(false);
-    setIsCreateModalOpen(false);
   };
 
   return (
@@ -92,21 +63,11 @@ export default function Home() {
           <button
             className="btn"
             type="button"
-            onClick={() => setIsCreateModalOpen(true)}
-          >
-            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-            </svg>
-            New Project
-          </button>
-          <button
-            className="rounded-[12px] border border-border bg-[rgba(255,255,255,0.03)] px-4 py-3 text-sm font-semibold text-foreground transition-colors hover:bg-[rgba(255,255,255,0.06)]"
-            type="button"
             onClick={() => (isConnected ? handleDisconnect() : setIsConnectModalOpen(true))}
           >
             {isConnected ? (
               <>
-                <span className="inline-block h-2 w-2 rounded-full bg-green-400 animate-pulse mr-2" />
+                <span className="h-2 w-2 rounded-full bg-green-400 animate-pulse" />
                 Connected
               </>
             ) : (
