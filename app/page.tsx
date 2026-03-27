@@ -84,7 +84,7 @@ export default function Home() {
             <h2 className="mt-1 text-xl font-semibold text-foreground">Your hi-fi prototypes</h2>
           </div>
           <p className="text-xs font-semibold text-muted">
-            {searchQuery ? `${filteredProjects.length} results` : "Scroll sideways to browse the shelf"}
+            {searchQuery ? `${filteredProjects.length} results` : "Scroll to find your project"}
           </p>
         </div>
 
