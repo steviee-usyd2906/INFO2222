@@ -361,7 +361,7 @@ export default function Home() {
       {/* Create Project Modal */}
       {isCreateModalOpen && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-background"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"
           onClick={() => !isCreating && setIsCreateModalOpen(false)}
         >
           <div
