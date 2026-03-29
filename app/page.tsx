@@ -1,15 +1,42 @@
 "use client";
 
-import { useState, useMemo } from "react";
-import { dummyProjects, type Project, type ProjectTask } from "../src/data/dummyProjects";
+import { useState, useMemo, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
+import type { User } from "@supabase/supabase-js";
 import ProjectShelf from "../src/components/ProjectShelf";
+
+interface ProjectTask {
+  id: string;
+  title: string;
+  progressPercentage: number;
+  assignedUser: string;
+  completed: boolean;
+  dueDate: string;
+  comments: { id: string; userName: string; text: string }[];
+}
+
+interface Project {
+  id: string;
+  name: string;
+  shortDescription: string;
+  progressPercentage: number;
+  tasks: ProjectTask[];
+}
 
 export default function Home() {
   const [searchQuery, setSearchQuery] = useState("");
   const [isConnectModalOpen, setIsConnectModalOpen] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
-  const [projects, setProjects] = useState<Project[]>(dummyProjects);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [isLoadingProjects, setIsLoadingProjects] = useState(true);
+  
+  // Auth state
+  const [user, setUser] = useState<User | null>(null);
+  const [isLoadingAuth, setIsLoadingAuth] = useState(true);
+  const router = useRouter();
+  const supabase = createClient();
   
   // Create Project Modal State
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -17,6 +44,98 @@ export default function Home() {
   const [newProjectDescription, setNewProjectDescription] = useState("");
   const [newProjectTasks, setNewProjectTasks] = useState<{ title: string; assignedUser: string; dueDate: string }[]>([]);
   const [isCreating, setIsCreating] = useState(false);
+
+  // Check auth state and load projects
+  useEffect(() => {
+    const checkAuth = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      setUser(user);
+      setIsLoadingAuth(false);
+      
+      if (user) {
+        await loadProjects();
+      } else {
+        setIsLoadingProjects(false);
+      }
+    };
+    
+    checkAuth();
+    
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      setUser(session?.user ?? null);
+      if (session?.user) {
+        await loadProjects();
+      } else {
+        setProjects([]);
+      }
+    });
+    
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // Lock body scroll when modal is open
+  useEffect(() => {
+    if (isCreateModalOpen || isConnectModalOpen) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
+    }
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [isCreateModalOpen, isConnectModalOpen]);
+
+  const loadProjects = async () => {
+    setIsLoadingProjects(true);
+    
+    const { data: projectsData, error: projectsError } = await supabase
+      .from("projects")
+      .select("*")
+      .order("created_at", { ascending: false });
+    
+    if (projectsError) {
+      console.error("Error loading projects:", projectsError);
+      setIsLoadingProjects(false);
+      return;
+    }
+    
+    // Load tasks for each project
+    const projectsWithTasks: Project[] = await Promise.all(
+      (projectsData || []).map(async (project) => {
+        const { data: tasksData } = await supabase
+          .from("tasks")
+          .select("*")
+          .eq("project_id", project.id)
+          .order("created_at", { ascending: true });
+        
+        const tasks: ProjectTask[] = (tasksData || []).map((task) => ({
+          id: task.id,
+          title: task.title,
+          progressPercentage: task.progress_percentage || 0,
+          assignedUser: task.assigned_user || "Unassigned",
+          completed: task.completed || false,
+          dueDate: task.due_date || "TBD",
+          comments: [],
+        }));
+        
+        return {
+          id: project.id,
+          name: project.name,
+          shortDescription: project.short_description || "",
+          progressPercentage: project.progress_percentage || 0,
+          tasks,
+        };
+      })
+    );
+    
+    setProjects(projectsWithTasks);
+    setIsLoadingProjects(false);
+  };
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    router.push("/auth/login");
+  };
 
   const filteredProjects = useMemo(() => {
     if (!searchQuery.trim()) return projects;
@@ -61,38 +180,94 @@ export default function Home() {
   };
 
   const handleCreateProject = async () => {
-    if (!newProjectName.trim()) return;
+    if (!newProjectName.trim() || !user) return;
     
     setIsCreating(true);
-    await new Promise((resolve) => setTimeout(resolve, 1000));
     
-    const newTasks: ProjectTask[] = newProjectTasks
+    // Create project in Supabase
+    const { data: projectData, error: projectError } = await supabase
+      .from("projects")
+      .insert({
+        name: newProjectName,
+        short_description: newProjectDescription || "No description provided.",
+        progress_percentage: 0,
+        user_id: user.id,
+      })
+      .select()
+      .single();
+    
+    if (projectError) {
+      console.error("Error creating project:", projectError);
+      setIsCreating(false);
+      return;
+    }
+    
+    // Create tasks in Supabase
+    const tasksToCreate = newProjectTasks
       .filter((t) => t.title.trim())
-      .map((t, i) => ({
-        id: `task-${Date.now()}-${i}`,
+      .map((t) => ({
+        project_id: projectData.id,
         title: t.title,
-        progressPercentage: 0,
-        assignedUser: t.assignedUser || "Unassigned",
+        assigned_user: t.assignedUser || "Unassigned",
+        due_date: t.dueDate || "TBD",
+        progress_percentage: 0,
         completed: false,
-        dueDate: t.dueDate || "TBD",
-        comments: [],
       }));
     
-    const newProject: Project = {
-      id: `proj-${Date.now()}`,
-      name: newProjectName,
-      shortDescription: newProjectDescription || "No description provided.",
-      progressPercentage: 0,
-      tasks: newTasks,
-    };
+    if (tasksToCreate.length > 0) {
+      await supabase.from("tasks").insert(tasksToCreate);
+    }
     
-    setProjects((prev) => [newProject, ...prev]);
+    // Reload projects to get fresh data
+    await loadProjects();
+    
     setNewProjectName("");
     setNewProjectDescription("");
     setNewProjectTasks([]);
     setIsCreating(false);
     setIsCreateModalOpen(false);
   };
+
+  // Show loading state
+  if (isLoadingAuth) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-4">
+          <span className="h-8 w-8 animate-spin rounded-full border-4 border-accent2 border-t-transparent" />
+          <p className="text-sm text-muted">Loading...</p>
+        </div>
+      </main>
+    );
+  }
+
+  // Show login prompt if not authenticated
+  if (!user) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-background px-4">
+        <div className="card w-full max-w-md p-8 text-center">
+          <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-xl bg-gradient-to-br from-accent via-accent to-accent2 shadow-soft">
+            <span className="text-background text-2xl font-bold">M</span>
+          </div>
+          <h1 className="text-2xl font-bold text-foreground">Mango Hi-Fi</h1>
+          <p className="mt-2 text-sm text-muted">Sign in to access your hi-fi prototype dashboard</p>
+          <div className="mt-8 flex flex-col gap-3">
+            <button
+              className="btn w-full justify-center"
+              onClick={() => router.push("/auth/login")}
+            >
+              Sign In
+            </button>
+            <button
+              className="rounded-[12px] border border-border bg-[rgba(255,255,255,0.03)] px-4 py-2.5 text-sm font-semibold text-foreground transition-colors hover:bg-[rgba(255,255,255,0.06)]"
+              onClick={() => router.push("/auth/sign-up")}
+            >
+              Create Account
+            </button>
+          </div>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="mx-auto w-full max-w-7xl px-8 py-12">
@@ -110,14 +285,14 @@ export default function Home() {
         <div className="flex items-center gap-3">
           <input
             className="input"
-            placeholder="Search tracks, artists, devices..."
+            placeholder="Search projects..."
             aria-label="Search"
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
           />
           <button
-            className="w-full rounded-[12px] border border-border bg-[rgba(255,255,255,0.03)] px-4 py-2.5 text-sm font-semibold text-foreground transition-colors hover:bg-[rgba(255,255,255,0.06)] flex items-center gap-2"
+            className="rounded-[12px] border border-border bg-[rgba(255,255,255,0.03)] px-4 py-2.5 text-sm font-semibold text-foreground transition-colors hover:bg-[rgba(255,255,255,0.06)] flex items-center gap-2 whitespace-nowrap"
             type="button"
             onClick={() => setIsCreateModalOpen(true)}
           >
@@ -127,7 +302,7 @@ export default function Home() {
             New Project
           </button>
           <button
-            className="btn"
+            className="btn whitespace-nowrap"
             type="button"
             onClick={() => (isConnected ? handleDisconnect() : setIsConnectModalOpen(true))}
           >
@@ -139,6 +314,16 @@ export default function Home() {
             ) : (
               "Connect"
             )}
+          </button>
+          <button
+            className="rounded-[12px] border border-border bg-[rgba(255,255,255,0.03)] px-4 py-2.5 text-sm font-semibold text-foreground transition-colors hover:bg-[rgba(255,255,255,0.06)] flex items-center gap-2"
+            type="button"
+            onClick={handleLogout}
+          >
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+            </svg>
+            Logout
           </button>
         </div>
       </header>
@@ -176,11 +361,11 @@ export default function Home() {
       {/* Create Project Modal */}
       {isCreateModalOpen && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-background"
           onClick={() => !isCreating && setIsCreateModalOpen(false)}
         >
           <div
-            className="card mx-4 w-full max-w-lg max-h-[85vh] overflow-hidden flex flex-col"
+            className="mx-4 w-full max-w-lg max-h-[85vh] overflow-hidden flex flex-col rounded-[16px] border border-border bg-surface shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between border-b border-border p-6">
