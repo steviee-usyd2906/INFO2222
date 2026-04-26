@@ -1,0 +1,144 @@
+@import "tailwindcss";
+
+:root {
+  /* Core theme tokens (dark by default) */
+  --background: #070916;
+  --foreground: #eef0ff;
+  --muted: rgba(238, 240, 255, 0.72);
+
+  --surface: rgba(255, 255, 255, 0.05);
+  --surface2: rgba(255, 255, 255, 0.075);
+  --border: rgba(255, 255, 255, 0.12);
+
+  /* Blue / purple accents */
+  --accent: #7c3aed; /* purple */
+  --accent2: #60a5fa; /* blue */
+  --accent-rgb: 124, 58, 237;
+  --accent2-rgb: 96, 165, 250;
+
+  /* Sizing */
+  --radius: 16px;
+
+  /* Elevation */
+  --shadow-soft: 0 10px 35px rgba(0, 0, 0, 0.45);
+  --shadow-glow: 0 0 0 1px rgba(124, 58, 237, 0.18), 0 22px 70px rgba(124, 58, 237, 0.14);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+
+  --color-surface: var(--surface);
+  --color-surface2: var(--surface2);
+  --color-border: var(--border);
+
+  --color-accent: var(--accent);
+  --color-accent2: var(--accent2);
+
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system, Segoe UI,
+    Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+  overflow-x: hidden;
+  isolation: isolate; /* lets the background overlays sit behind content */
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  pointer-events: none;
+  background:
+    radial-gradient(900px circle at 12% 0%, rgba(var(--accent-rgb), 0.32), transparent 55%),
+    radial-gradient(850px circle at 90% 10%, rgba(var(--accent2-rgb), 0.28), transparent 52%),
+    radial-gradient(1000px circle at 40% 100%, rgba(34, 211, 238, 0.09), transparent 60%);
+}
+
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0.08;
+  background-image:
+    linear-gradient(to right, rgba(255, 255, 255, 0.6) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.6) 1px, transparent 1px);
+  background-size: 64px 64px;
+  mask-image: radial-gradient(circle at 50% 0%, rgba(0, 0, 0, 1), rgba(0, 0, 0, 0));
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+::selection {
+  background: rgba(var(--accent2-rgb), 0.35);
+}
+
+@layer components {
+  .shadow-soft {
+    box-shadow: var(--shadow-soft);
+  }
+
+  .card {
+    border: 1px solid var(--border);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.075), rgba(255, 255, 255, 0.04));
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-soft);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border-radius: calc(var(--radius) - 4px);
+    border: 1px solid rgba(var(--accent2-rgb), 0.25);
+    color: var(--background);
+    font-weight: 700;
+    background: linear-gradient(135deg, rgba(var(--accent-rgb), 0.95), rgba(var(--accent2-rgb), 0.95));
+    box-shadow: var(--shadow-glow);
+    transition: transform 160ms ease, box-shadow 160ms ease, filter 160ms ease;
+  }
+
+  .btn:hover {
+    transform: translateY(-1px);
+    filter: saturate(1.05);
+  }
+
+  .input {
+    width: 100%;
+    padding: 10px 12px;
+    border-radius: calc(var(--radius) - 6px);
+    border: 1px solid var(--border);
+    background: rgba(255, 255, 255, 0.035);
+    color: var(--foreground);
+    outline: none;
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.18);
+  }
+
+  .input::placeholder {
+    color: rgba(238, 240, 255, 0.55);
+  }
+
+  .input:focus {
+    border-color: rgba(var(--accent2-rgb), 0.45);
+    box-shadow: 0 0 0 4px rgba(var(--accent2-rgb), 0.18);
+  }
+}
