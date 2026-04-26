@@ -70,6 +70,8 @@ export default function ProjectShelf({
   const [activeIndex, setActiveIndex] = useState(Math.floor(projects.length / 2));
   const containerRef = useRef<HTMLDivElement | null>(null);
   const isScrolling = useRef(false);
+  const boundedActiveIndex =
+    projects.length === 0 ? 0 : Math.min(activeIndex, projects.length - 1);
 
   // Handle wheel scroll to change active project
   const handleWheel = useCallback((e: WheelEvent<HTMLDivElement>) => {
@@ -97,7 +99,7 @@ export default function ProjectShelf({
 
   // Calculate card styles based on distance from center
   const getCardStyle = (index: number) => {
-    const distance = index - activeIndex;
+    const distance = index - boundedActiveIndex;
     const absDistance = Math.abs(distance);
     
     // Scale: center is largest, decreases with distance
@@ -137,7 +139,7 @@ export default function ProjectShelf({
         aria-label="Projects carousel"
       >
         {projects.map((project, index) => {
-          const isActive = index === activeIndex;
+          const isActive = index === boundedActiveIndex;
           const style = getCardStyle(index);
           
           return (
@@ -163,7 +165,7 @@ export default function ProjectShelf({
             type="button"
             onClick={() => setActiveIndex(index)}
             className={`h-2 rounded-full transition-all duration-300 ${
-              index === activeIndex
+              index === boundedActiveIndex
                 ? "w-8 bg-gradient-to-r from-accent to-accent2"
                 : "w-2 bg-surface2 hover:bg-muted"
             }`}

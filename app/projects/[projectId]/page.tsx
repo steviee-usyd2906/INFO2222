@@ -1,20 +1,34 @@
 "use client";
 
-import { useParams, notFound } from "next/navigation";
 import Link from "next/link";
-import { useState, useMemo, useRef } from "react";
-import { dummyProjects, type Project, type ProjectTask, type TaskComment } from "../../../src/data/dummyProjects";
+import { useParams, useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { Project, ProjectTask } from "../../../src/data/dummyProjects";
 import ProgressWheel from "../../../src/components/ProgressWheel";
 import { ToastContainer, useToast } from "../../../src/components/Toast";
+import {
+  createComment,
+  createTask,
+  deleteComment,
+  deleteProject,
+  deleteTask,
+  fetchProject,
+  updateComment,
+  updateProject,
+  updateTask,
+} from "../../../src/lib/project-api";
 
-function clamp01(v: number) {
-  return Math.max(0, Math.min(1, v));
+function clamp01(value: number) {
+  return Math.max(0, Math.min(1, value));
 }
 
 function getWheelProgress(tasks: ProjectTask[]) {
   if (!tasks.length) return 0;
-  const avg = tasks.reduce((acc, t) => acc + Math.max(0, Math.min(100, t.progressPercentage)), 0) / tasks.length;
-  return Math.round(avg);
+  const total = tasks.reduce(
+    (sum, task) => sum + Math.max(0, Math.min(100, task.progressPercentage)),
+    0,
+  );
+  return Math.round(total / tasks.length);
 }
 
 type ChatMessage = {
@@ -26,144 +40,219 @@ type ChatMessage = {
 
 export default function ProjectDetailPage() {
   const params = useParams();
+  const router = useRouter();
+  const toast = useToast();
   const projectId = params?.projectId as string;
-  const initialProject = dummyProjects.find((p) => p.id === projectId);
 
-  if (!initialProject) {
-    notFound();
-  }
+  const [project, setProject] = useState<Project | null>(null);
+  const [isLoadingProject, setIsLoadingProject] = useState(true);
+  const [projectError, setProjectError] = useState<string | null>(null);
 
-  const [tasks, setTasks] = useState<ProjectTask[]>(initialProject.tasks);
   const [dropActive, setDropActive] = useState(false);
   const [draggingTaskId, setDraggingTaskId] = useState<string | null>(null);
   const [showMyTasks, setShowMyTasks] = useState(false);
   const [selectedUser, setSelectedUser] = useState<string | null>(null);
-  
-  // Modal states
+
   const [isSubmitModalOpen, setIsSubmitModalOpen] = useState(false);
   const [isSpecModalOpen, setIsSpecModalOpen] = useState(false);
+  const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitSuccess, setSubmitSuccess] = useState(false);
-  
-  // Task detail modal state
-  const [selectedTask, setSelectedTask] = useState<ProjectTask | null>(null);
-  const [newComment, setNewComment] = useState("");
+  const [isSavingProject, setIsSavingProject] = useState(false);
+  const [isDeletingProject, setIsDeletingProject] = useState(false);
 
-  // Upload material state
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [newComment, setNewComment] = useState("");
+  const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
+  const [editingCommentText, setEditingCommentText] = useState("");
+
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState<string[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Spec editing state
   const [isEditingSpec, setIsEditingSpec] = useState(false);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [editTaskTitle, setEditTaskTitle] = useState("");
   const [editTaskAssignedUser, setEditTaskAssignedUser] = useState("");
   const [editTaskDueDate, setEditTaskDueDate] = useState("");
-  const [newSpecTask, setNewSpecTask] = useState({ title: "", assignedUser: "", dueDate: "" });
+  const [newSpecTask, setNewSpecTask] = useState({
+    title: "",
+    assignedUser: "",
+    dueDate: "",
+  });
   const [isAddingTask, setIsAddingTask] = useState(false);
 
-  // Chat state
+  const [projectName, setProjectName] = useState("");
+  const [projectDescription, setProjectDescription] = useState("");
+
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
     {
       id: "1",
       sender: "system",
-      text: `Welcome to the ${initialProject.name} project chat! How can I help you today?`,
+      text: "Welcome to the project chat! How can I help you today?",
       timestamp: new Date(),
     },
   ]);
   const [chatInput, setChatInput] = useState("");
 
-  // Toast notifications
-  const toast = useToast();
+  const tasks = useMemo(() => project?.tasks ?? [], [project]);
+  const selectedTask = useMemo(
+    () => tasks.find((task) => task.id === selectedTaskId) ?? null,
+    [selectedTaskId, tasks],
+  );
 
-  const completeTask = (taskId: string) => {
-    const task = tasks.find((t) => t.id === taskId);
-    if (!task || task.completed) return;
-    
-    setTasks((prev) =>
-      prev.map((t) => {
-        if (t.id !== taskId) return t;
-        if (t.completed) return t;
-        return {
-          ...t,
-          completed: true,
-          progressPercentage: 100,
-        };
-      })
-    );
-    
-    toast.success(`Task "${task.title}" completed!`);
-    
-    // Update selected task if it's the one being completed
-    if (selectedTask?.id === taskId) {
-      setSelectedTask({ ...selectedTask, completed: true, progressPercentage: 100 });
-    }
-  };
-
-  const addComment = (taskId: string, text: string) => {
-    if (!text.trim()) return;
-    
-    const newCommentObj: TaskComment = {
-      id: `comment-${Date.now()}`,
-      user: "You",
-      text: text.trim(),
-      timestamp: new Date(),
-    };
-    
-    setTasks((prev) =>
-      prev.map((t) => {
-        if (t.id !== taskId) return t;
-        return {
-          ...t,
-          comments: [...t.comments, newCommentObj],
-        };
-      })
-    );
-    
-    // Update selected task to show new comment
-    if (selectedTask?.id === taskId) {
-      setSelectedTask({
-        ...selectedTask,
-        comments: [...selectedTask.comments, newCommentObj],
-      });
-    }
-    
-    setNewComment("");
-    toast.success("Comment added!");
-  };
-
-  const completedCount = useMemo(() => tasks.filter((t) => t.completed).length, [tasks]);
+  const completedCount = useMemo(
+    () => tasks.filter((task) => task.completed).length,
+    [tasks],
+  );
   const wheelProgress = useMemo(() => getWheelProgress(tasks), [tasks]);
   const totalCount = tasks.length || 1;
+  const dropHintOpacity = clamp01(wheelProgress / 100);
 
-  // Get unique users for "My Tasks" filter
   const uniqueUsers = useMemo(() => {
-    const users = new Set(tasks.map((t) => t.assignedUser));
-    return Array.from(users);
+    return Array.from(new Set(tasks.map((task) => task.assignedUser)));
   }, [tasks]);
 
-  // Filter tasks based on selected user
   const displayedTasks = useMemo(() => {
     if (!showMyTasks || !selectedUser) return tasks;
-    return tasks.filter((t) => t.assignedUser === selectedUser);
+    return tasks.filter((task) => task.assignedUser === selectedUser);
   }, [tasks, showMyTasks, selectedUser]);
 
-  const handleDropOnWheel = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
+  const syncProject = useCallback((nextProject: Project) => {
+    setProject(nextProject);
+    setProjectError(null);
+    setProjectName(nextProject.name);
+    setProjectDescription(nextProject.shortDescription);
+
+    if (
+      selectedTaskId &&
+      !nextProject.tasks.some((task) => task.id === selectedTaskId)
+    ) {
+      setSelectedTaskId(null);
+    }
+  }, [selectedTaskId]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadProject() {
+      try {
+        setIsLoadingProject(true);
+        setProjectError(null);
+        const nextProject = await fetchProject(projectId);
+
+        if (!isMounted) {
+          return;
+        }
+
+        syncProject(nextProject);
+      } catch (error) {
+        if (!isMounted) {
+          return;
+        }
+
+        setProjectError(
+          error instanceof Error ? error.message : "Failed to load project.",
+        );
+      } finally {
+        if (isMounted) {
+          setIsLoadingProject(false);
+        }
+      }
+    }
+
+    loadProject();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [projectId, syncProject]);
+
+  async function completeTask(taskId: string) {
+    const task = tasks.find((item) => item.id === taskId);
+    if (!task || task.completed) return;
+
+    try {
+      const nextProject = await updateTask(taskId, {
+        completed: true,
+        progressPercentage: 100,
+      });
+      syncProject(nextProject);
+      toast.success(`Task "${task.title}" completed!`);
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to complete task.",
+      );
+    }
+  }
+
+  async function handleAddComment(taskId: string, text: string) {
+    if (!text.trim()) return;
+
+    try {
+      const nextProject = await createComment(taskId, {
+        user: "You",
+        text,
+      });
+      syncProject(nextProject);
+      setNewComment("");
+      toast.success("Comment added!");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to add comment.",
+      );
+    }
+  }
+
+  async function handleUpdateComment(commentId: string) {
+    if (!editingCommentText.trim()) return;
+
+    try {
+      const nextProject = await updateComment(commentId, {
+        text: editingCommentText,
+      });
+      syncProject(nextProject);
+      setEditingCommentId(null);
+      setEditingCommentText("");
+      toast.success("Comment updated!");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to update comment.",
+      );
+    }
+  }
+
+  async function handleDeleteComment(commentId: string) {
+    try {
+      const nextProject = await deleteComment(commentId);
+      syncProject(nextProject);
+      if (editingCommentId === commentId) {
+        setEditingCommentId(null);
+        setEditingCommentText("");
+      }
+      toast.success("Comment removed!");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to delete comment.",
+      );
+    }
+  }
+
+  const handleDropOnWheel = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
     setDropActive(false);
-    const taskId = e.dataTransfer.getData("text/plain");
+    const taskId = event.dataTransfer.getData("text/plain");
     if (!taskId) return;
-    completeTask(taskId);
+    void completeTask(taskId);
     setDraggingTaskId(null);
   };
 
-  const handleDragStartTask = (taskId: string) => (e: React.DragEvent) => {
+  const handleDragStartTask = (taskId: string) => (event: React.DragEvent) => {
     setDraggingTaskId(taskId);
-    e.dataTransfer.setData("text/plain", taskId);
-    e.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", taskId);
+    event.dataTransfer.effectAllowed = "move";
   };
 
   const handleSubmit = async () => {
@@ -173,20 +262,18 @@ export default function ProjectDetailPage() {
     setSubmitSuccess(true);
   };
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
     if (!files || files.length === 0) return;
-    
+
     setIsUploading(true);
-    
-    // Simulate upload delay
     await new Promise((resolve) => setTimeout(resolve, 1500));
-    
-    const newFiles = Array.from(files).map((f) => f.name);
-    setUploadedFiles((prev) => [...prev, ...newFiles]);
+
+    const nextFiles = Array.from(files).map((file) => file.name);
+    setUploadedFiles((prev) => [...prev, ...nextFiles]);
     setIsUploading(false);
-    toast.success(`${newFiles.length} file(s) uploaded successfully!`);
-    
+    toast.success(`${nextFiles.length} file(s) uploaded successfully!`);
+
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
@@ -194,41 +281,35 @@ export default function ProjectDetailPage() {
 
   const handleSendMessage = () => {
     if (!chatInput.trim()) return;
-    
+
     const userMessage: ChatMessage = {
       id: Date.now().toString(),
       sender: "user",
       text: chatInput,
       timestamp: new Date(),
     };
-    
+
     setChatMessages((prev) => [...prev, userMessage]);
     setChatInput("");
-    
-    // Simulate system response
+
     setTimeout(() => {
       const responses = [
         "I understand. Let me check on that for you.",
-        `The ${initialProject.name} project is currently at ${wheelProgress}% completion.`,
+        `The ${project?.name ?? "project"} is currently at ${wheelProgress}% completion.`,
         "Great question! The team is making good progress on the remaining tasks.",
         "I can help you with that. What specific information do you need?",
         `There are ${totalCount - completedCount} tasks remaining in this project.`,
       ];
-      const randomResponse = responses[Math.floor(Math.random() * responses.length)];
-      
-      const systemMessage: ChatMessage = {
-        id: (Date.now() + 1).toString(),
+      const reply: ChatMessage = {
+        id: `${Date.now()}-system`,
         sender: "system",
-        text: randomResponse,
+        text: responses[Math.floor(Math.random() * responses.length)],
         timestamp: new Date(),
       };
-      setChatMessages((prev) => [...prev, systemMessage]);
+      setChatMessages((prev) => [...prev, reply]);
     }, 1000);
   };
 
-  const dropHintOpacity = clamp01(wheelProgress / 100);
-
-  // Spec task editing functions
   const startEditTask = (task: ProjectTask) => {
     setEditingTaskId(task.id);
     setEditTaskTitle(task.title);
@@ -236,22 +317,26 @@ export default function ProjectDetailPage() {
     setEditTaskDueDate(task.dueDate);
   };
 
-  const saveEditTask = () => {
+  const saveEditTask = async () => {
     if (!editingTaskId || !editTaskTitle.trim()) return;
-    
-    setTasks((prev) =>
-      prev.map((t) =>
-        t.id === editingTaskId
-          ? { ...t, title: editTaskTitle, assignedUser: editTaskAssignedUser || "Unassigned", dueDate: editTaskDueDate || "TBD" }
-          : t
-      )
-    );
-    
-    setEditingTaskId(null);
-    setEditTaskTitle("");
-    setEditTaskAssignedUser("");
-    setEditTaskDueDate("");
-    toast.success("Task updated!");
+
+    try {
+      const nextProject = await updateTask(editingTaskId, {
+        title: editTaskTitle,
+        assignedUser: editTaskAssignedUser || "Unassigned",
+        dueDate: editTaskDueDate || "TBD",
+      });
+      syncProject(nextProject);
+      setEditingTaskId(null);
+      setEditTaskTitle("");
+      setEditTaskAssignedUser("");
+      setEditTaskDueDate("");
+      toast.success("Task updated!");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to update task.",
+      );
+    }
   };
 
   const cancelEditTask = () => {
@@ -261,29 +346,119 @@ export default function ProjectDetailPage() {
     setEditTaskDueDate("");
   };
 
-  const deleteSpecTask = (taskId: string) => {
-    setTasks((prev) => prev.filter((t) => t.id !== taskId));
-    toast.success("Task removed!");
+  const deleteSpecTask = async (taskId: string) => {
+    try {
+      const nextProject = await deleteTask(taskId);
+      syncProject(nextProject);
+      toast.success("Task removed!");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to delete task.",
+      );
+    }
   };
 
-  const addSpecTask = () => {
-    if (!newSpecTask.title.trim()) return;
-    
-    const newTask: ProjectTask = {
-      id: `task-${Date.now()}`,
-      title: newSpecTask.title,
-      progressPercentage: 0,
-      assignedUser: newSpecTask.assignedUser || "Unassigned",
-      completed: false,
-      dueDate: newSpecTask.dueDate || "TBD",
-      comments: [],
-    };
-    
-    setTasks((prev) => [...prev, newTask]);
-    setNewSpecTask({ title: "", assignedUser: "", dueDate: "" });
-    setIsAddingTask(false);
-    toast.success("Task added!");
+  const addSpecTask = async () => {
+    if (!project || !newSpecTask.title.trim()) return;
+
+    try {
+      const nextProject = await createTask(project.id, {
+        title: newSpecTask.title,
+        assignedUser: newSpecTask.assignedUser,
+        dueDate: newSpecTask.dueDate,
+      });
+      syncProject(nextProject);
+      setNewSpecTask({ title: "", assignedUser: "", dueDate: "" });
+      setIsAddingTask(false);
+      toast.success("Task added!");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to add task.",
+      );
+    }
   };
+
+  const openProjectEditor = () => {
+    if (!project) return;
+    setProjectName(project.name);
+    setProjectDescription(project.shortDescription);
+    setIsProjectModalOpen(true);
+  };
+
+  const saveProjectDetails = async () => {
+    if (!project || !projectName.trim()) return;
+
+    try {
+      setIsSavingProject(true);
+      const nextProject = await updateProject(project.id, {
+        name: projectName,
+        shortDescription: projectDescription,
+      });
+      syncProject(nextProject);
+      setIsProjectModalOpen(false);
+      toast.success("Project updated!");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to update project.",
+      );
+    } finally {
+      setIsSavingProject(false);
+    }
+  };
+
+  const handleDeleteProject = async () => {
+    if (!project) return;
+
+    try {
+      setIsDeletingProject(true);
+      await deleteProject(project.id);
+      toast.success("Project deleted!");
+      router.push("/");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to delete project.",
+      );
+      setIsDeletingProject(false);
+    }
+  };
+
+  if (isLoadingProject) {
+    return (
+      <main className="mx-auto w-full max-w-7xl px-8 py-12">
+        <div className="card p-8 text-center">
+          <p className="text-lg font-semibold text-foreground">Loading project</p>
+          <p className="mt-2 text-sm text-muted">Pulling the latest tasks and comments...</p>
+        </div>
+      </main>
+    );
+  }
+
+  if (projectError) {
+    return (
+      <main className="mx-auto w-full max-w-7xl px-8 py-12">
+        <div className="card p-8 text-center">
+          <p className="text-lg font-semibold text-foreground">Project unavailable</p>
+          <p className="mt-2 text-sm text-muted">{projectError}</p>
+        </div>
+      </main>
+    );
+  }
+
+  if (!project) {
+    return (
+      <main className="mx-auto w-full max-w-7xl px-8 py-12">
+        <div className="card p-8 text-center">
+          <p className="text-lg font-semibold text-foreground">Project not found</p>
+          <p className="mt-2 text-sm text-muted">
+            The project you requested does not exist anymore.
+          </p>
+          <Link href="/" className="btn mt-6 inline-flex">
+            Back to Dashboard
+          </Link>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <>
@@ -299,16 +474,19 @@ export default function ProjectDetailPage() {
               </span>
               Dashboard
             </Link>
-            <span aria-hidden="true" className="h-1 w-1 rounded-full bg-[rgba(255,255,255,0.25)]" />
+            <span
+              aria-hidden="true"
+              className="h-1 w-1 rounded-full bg-[rgba(255,255,255,0.25)]"
+            />
             <p className="text-sm font-semibold text-muted">Project</p>
           </div>
 
           <h1 className="mt-2 text-2xl font-semibold text-foreground">
-            {initialProject.name}
+            {project.name}
           </h1>
 
           <p className="mt-2 max-w-3xl text-sm leading-relaxed text-muted">
-            {initialProject.shortDescription}{" "}
+            {project.shortDescription}{" "}
             <span className="font-semibold text-foreground/90">
               {completedCount}/{totalCount}
             </span>{" "}
@@ -317,12 +495,11 @@ export default function ProjectDetailPage() {
         </header>
 
         <section className="grid grid-cols-1 gap-6 lg:grid-cols-[280px_1fr_360px]">
-          {/* Left: actions */}
-          <aside className="card relative p-6 lg:sticky lg:top-10 h-fit">
+          <aside className="card relative h-fit p-6 lg:sticky lg:top-10">
             <p className="text-xs font-semibold tracking-wide text-muted">ACTIONS</p>
             <div className="mt-5 flex flex-col gap-2">
-              <button 
-                className="btn w-full" 
+              <button
+                className="btn w-full"
                 type="button"
                 onClick={() => setIsSubmitModalOpen(true)}
               >
@@ -334,6 +511,13 @@ export default function ProjectDetailPage() {
                 onClick={() => setIsSpecModalOpen(true)}
               >
                 Project Spec
+              </button>
+              <button
+                className="w-full rounded-[12px] border border-border bg-[rgba(255,255,255,0.03)] px-4 py-3 text-sm font-semibold text-foreground transition-transform duration-200 hover:-translate-y-0.5 focus:outline-none focus-visible:ring-4 focus-visible:ring-[rgba(96,165,250,0.18)]"
+                type="button"
+                onClick={openProjectEditor}
+              >
+                Edit Project
               </button>
               <button
                 className={`w-full rounded-[12px] border px-4 py-3 text-sm font-semibold text-foreground transition-transform duration-200 hover:-translate-y-0.5 focus:outline-none focus-visible:ring-4 focus-visible:ring-[rgba(96,165,250,0.18)] ${
@@ -354,18 +538,27 @@ export default function ProjectDetailPage() {
                 {showMyTasks ? "Show All Tasks" : "My Tasks"}
               </button>
               <button
-                className="w-full rounded-[12px] border border-border bg-[rgba(255,255,255,0.03)] px-4 py-3 text-sm font-semibold text-foreground transition-transform duration-200 hover:-translate-y-0.5 focus:outline-none focus-visible:ring-4 focus-visible:ring-[rgba(96,165,250,0.18)] flex items-center justify-center gap-2"
+                className="flex w-full items-center justify-center gap-2 rounded-[12px] border border-border bg-[rgba(255,255,255,0.03)] px-4 py-3 text-sm font-semibold text-foreground transition-transform duration-200 hover:-translate-y-0.5 focus:outline-none focus-visible:ring-4 focus-visible:ring-[rgba(96,165,250,0.18)]"
                 type="button"
                 onClick={() => setIsUploadModalOpen(true)}
               >
-                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                <svg
+                  className="h-4 w-4"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
+                  />
                 </svg>
                 Upload Material
               </button>
             </div>
 
-            {/* User filter when My Tasks is active */}
             {showMyTasks && (
               <div className="mt-4 rounded-[14px] border border-border bg-[rgba(255,255,255,0.03)] p-4">
                 <p className="text-xs font-semibold text-muted">FILTER BY USER</p>
@@ -374,7 +567,9 @@ export default function ProjectDetailPage() {
                     <button
                       key={user}
                       type="button"
-                      onClick={() => setSelectedUser(selectedUser === user ? null : user)}
+                      onClick={() =>
+                        setSelectedUser(selectedUser === user ? null : user)
+                      }
                       className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${
                         selectedUser === user
                           ? "border-[rgba(96,165,250,0.35)] bg-[rgba(96,165,250,0.12)] text-foreground"
@@ -400,33 +595,45 @@ export default function ProjectDetailPage() {
                 <div>
                   <p className="text-xs font-semibold text-muted">Done</p>
                   <p className="mt-1 text-lg font-semibold text-foreground">
-                    {showMyTasks ? displayedTasks.filter((t) => t.completed).length : completedCount}
+                    {showMyTasks
+                      ? displayedTasks.filter((task) => task.completed).length
+                      : completedCount}
                   </p>
                 </div>
               </div>
             </div>
+
+            <button
+              type="button"
+              onClick={() => void handleDeleteProject()}
+              disabled={isDeletingProject}
+              className="mt-6 w-full rounded-[12px] border border-[rgba(239,68,68,0.28)] bg-[rgba(239,68,68,0.08)] px-4 py-3 text-sm font-semibold text-red-300 transition-colors hover:bg-[rgba(239,68,68,0.14)] disabled:cursor-wait disabled:opacity-70"
+            >
+              {isDeletingProject ? "Deleting..." : "Delete Project"}
+            </button>
           </aside>
 
-          {/* Center: progress wheel (drag target) */}
           <div
             className={`card p-7 transition-transform duration-200 ${
               dropActive ? "scale-[1.01] ring-4 ring-[rgba(96,165,250,0.25)]" : ""
             }`}
-            onDragEnter={(e) => {
-              e.preventDefault();
+            onDragEnter={(event) => {
+              event.preventDefault();
               setDropActive(true);
             }}
-            onDragOver={(e) => {
-              e.preventDefault();
+            onDragOver={(event) => {
+              event.preventDefault();
               setDropActive(true);
-              e.dataTransfer.dropEffect = "move";
+              event.dataTransfer.dropEffect = "move";
             }}
             onDragLeave={() => setDropActive(false)}
             onDrop={handleDropOnWheel}
           >
             <div className="flex items-start justify-between gap-4">
               <div>
-                <p className="text-xs font-semibold tracking-wide text-muted">OVERVIEW</p>
+                <p className="text-xs font-semibold tracking-wide text-muted">
+                  OVERVIEW
+                </p>
                 <p className="mt-1 text-lg font-semibold text-foreground">
                   Project progress wheel
                 </p>
@@ -443,7 +650,9 @@ export default function ProjectDetailPage() {
                   className={`pointer-events-none absolute inset-0 rounded-full transition-opacity duration-200 ${
                     dropActive ? "opacity-100" : "opacity-0"
                   }`}
-                  style={{ background: `rgba(96,165,250,${0.08 + 0.12 * dropHintOpacity})` }}
+                  style={{
+                    background: `rgba(96,165,250,${0.08 + 0.12 * dropHintOpacity})`,
+                  }}
                 />
                 <div
                   className={`pointer-events-none absolute inset-0 grid place-items-center transition-opacity duration-200 ${
@@ -460,7 +669,9 @@ export default function ProjectDetailPage() {
             <div className="mt-7 grid grid-cols-1 gap-3 sm:grid-cols-3">
               <div className="rounded-[14px] border border-border bg-[rgba(255,255,255,0.03)] p-4">
                 <p className="text-xs font-semibold text-muted">Target</p>
-                <p className="mt-2 text-lg font-semibold text-foreground">Hi-fi demo</p>
+                <p className="mt-2 text-lg font-semibold text-foreground">
+                  Hi-fi demo
+                </p>
               </div>
               <div className="rounded-[14px] border border-border bg-[rgba(255,255,255,0.03)] p-4">
                 <p className="text-xs font-semibold text-muted">Mode</p>
@@ -468,7 +679,9 @@ export default function ProjectDetailPage() {
               </div>
               <div className="rounded-[14px] border border-border bg-[rgba(255,255,255,0.03)] p-4">
                 <p className="text-xs font-semibold text-muted">Health</p>
-                <p className="mt-2 text-lg font-semibold text-foreground">Stable</p>
+                <p className="mt-2 text-lg font-semibold text-foreground">
+                  Stable
+                </p>
               </div>
             </div>
 
@@ -477,17 +690,20 @@ export default function ProjectDetailPage() {
             </p>
           </div>
 
-          {/* Right: task boxes */}
           <aside className="card p-6">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <p className="text-xs font-semibold tracking-wide text-muted">TASKS</p>
+                <p className="text-xs font-semibold tracking-wide text-muted">
+                  TASKS
+                </p>
                 <p className="mt-1 text-lg font-semibold text-foreground">
-                  {showMyTasks && selectedUser ? `${selectedUser}'s tasks` : "Control checklist"}
+                  {showMyTasks && selectedUser
+                    ? `${selectedUser}'s tasks`
+                    : "Control checklist"}
                 </p>
                 <p className="mt-1 text-sm text-muted">
                   {showMyTasks
-                    ? `${displayedTasks.filter((t) => t.completed).length} / ${displayedTasks.length} completed`
+                    ? `${displayedTasks.filter((task) => task.completed).length} / ${displayedTasks.length} completed`
                     : `${completedCount} / ${totalCount} completed`}
                 </p>
               </div>
@@ -500,40 +716,51 @@ export default function ProjectDetailPage() {
               {displayedTasks.length === 0 ? (
                 <div className="rounded-[16px] border border-border bg-[rgba(255,255,255,0.03)] p-8 text-center">
                   <p className="text-sm font-semibold text-muted">No tasks found</p>
-                  <p className="mt-1 text-xs text-muted">Select a different user or show all tasks</p>
+                  <p className="mt-1 text-xs text-muted">
+                    Select a different user or show all tasks
+                  </p>
                 </div>
               ) : (
-                displayedTasks.map((t) => {
-                  const progress = Math.round(Math.max(0, Math.min(100, t.progressPercentage)));
-                  const isDragging = draggingTaskId === t.id;
+                displayedTasks.map((task) => {
+                  const progress = Math.round(
+                    Math.max(0, Math.min(100, task.progressPercentage)),
+                  );
+                  const isDragging = draggingTaskId === task.id;
+
                   return (
                     <button
-                      key={t.id}
+                      key={task.id}
                       type="button"
-                      draggable={!t.completed}
-                      onDragStart={t.completed ? undefined : handleDragStartTask(t.id)}
+                      draggable={!task.completed}
+                      onDragStart={
+                        task.completed ? undefined : handleDragStartTask(task.id)
+                      }
                       onClick={() => {
                         if (draggingTaskId) return;
-                        setSelectedTask(t);
+                        setSelectedTaskId(task.id);
                       }}
                       onDragEnd={() => {
                         setDraggingTaskId(null);
                         setDropActive(false);
                       }}
                       className={`group rounded-[16px] border border-border bg-[rgba(255,255,255,0.03)] p-4 text-left shadow-[0_18px_60px_rgba(0,0,0,0.30)] transition-transform duration-200 ease-out hover:-translate-y-0.5 focus:outline-none focus-visible:ring-4 focus-visible:ring-[rgba(96,165,250,0.18)] ${
-                        t.completed ? "opacity-80" : ""
+                        task.completed ? "opacity-80" : ""
                       } ${
                         isDragging
-                          ? "cursor-grabbing opacity-60 scale-[1.03] border-[rgba(96,165,250,0.55)] bg-[rgba(96,165,250,0.10)]"
-                          : t.completed
-                          ? "cursor-pointer"
-                          : "cursor-grab"
+                          ? "cursor-grabbing scale-[1.03] border-[rgba(96,165,250,0.55)] bg-[rgba(96,165,250,0.10)] opacity-60"
+                          : task.completed
+                            ? "cursor-pointer"
+                            : "cursor-grab"
                       }`}
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
-                          <p className="truncate text-sm font-semibold text-foreground">{t.title}</p>
-                          <p className="mt-1 text-xs font-semibold text-muted">{t.assignedUser}</p>
+                          <p className="truncate text-sm font-semibold text-foreground">
+                            {task.title}
+                          </p>
+                          <p className="mt-1 text-xs font-semibold text-muted">
+                            {task.assignedUser}
+                          </p>
                         </div>
                         <div className="flex items-center gap-2">
                           <span className="rounded-full border border-border bg-[rgba(255,255,255,0.03)] px-2 py-1 text-[11px] font-semibold text-muted">
@@ -541,12 +768,12 @@ export default function ProjectDetailPage() {
                           </span>
                           <span
                             className={`shrink-0 rounded-full border px-2 py-1 text-[11px] font-semibold ${
-                              t.completed
+                              task.completed
                                 ? "border-[rgba(96,165,250,0.35)] bg-[rgba(96,165,250,0.12)] text-foreground"
                                 : "border-border bg-[rgba(255,255,255,0.03)] text-muted"
                             }`}
                           >
-                            {t.completed ? "Done" : "Active"}
+                            {task.completed ? "Done" : "Active"}
                           </span>
                         </div>
                       </div>
@@ -566,7 +793,6 @@ export default function ProjectDetailPage() {
         </section>
       </main>
 
-      {/* Upload Material Modal */}
       {isUploadModalOpen && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
@@ -574,12 +800,14 @@ export default function ProjectDetailPage() {
         >
           <div
             className="card mx-4 w-full max-w-md"
-            onClick={(e) => e.stopPropagation()}
+            onClick={(event) => event.stopPropagation()}
           >
             <div className="flex items-center justify-between border-b border-border p-6">
               <div>
-                <h2 className="text-xl font-semibold text-foreground">Upload Material</h2>
-                <p className="text-sm text-muted mt-1">Add files to {initialProject.name}</p>
+                <h2 className="text-xl font-semibold text-foreground">
+                  Upload Material
+                </h2>
+                <p className="mt-1 text-sm text-muted">Add files to {project.name}</p>
               </div>
               <button
                 type="button"
@@ -587,16 +815,25 @@ export default function ProjectDetailPage() {
                 className="rounded-lg p-2 text-muted transition-colors hover:bg-surface2 hover:text-foreground"
                 aria-label="Close"
               >
-                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                <svg
+                  className="h-5 w-5"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M6 18L18 6M6 6l12 12"
+                  />
                 </svg>
               </button>
             </div>
 
             <div className="p-6">
-              {/* Upload Area */}
               <label
-                className={`flex flex-col items-center justify-center w-full h-44 rounded-[14px] border-2 border-dashed transition-colors cursor-pointer ${
+                className={`flex h-44 w-full cursor-pointer flex-col items-center justify-center rounded-[14px] border-2 border-dashed transition-colors ${
                   isUploading
                     ? "border-accent bg-accent/5"
                     : "border-border hover:border-accent/50 hover:bg-[rgba(255,255,255,0.03)]"
@@ -618,40 +855,81 @@ export default function ProjectDetailPage() {
                 ) : (
                   <div className="flex flex-col items-center gap-3">
                     <div className="flex h-14 w-14 items-center justify-center rounded-full bg-surface2">
-                      <svg className="h-7 w-7 text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                      <svg
+                        className="h-7 w-7 text-muted"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
+                        />
                       </svg>
                     </div>
                     <div className="text-center">
-                      <p className="text-sm font-semibold text-foreground">Click to upload</p>
-                      <p className="text-xs text-muted mt-1">or drag and drop files here</p>
+                      <p className="text-sm font-semibold text-foreground">
+                        Click to upload
+                      </p>
+                      <p className="mt-1 text-xs text-muted">
+                        or drag and drop files here
+                      </p>
                     </div>
                   </div>
                 )}
               </label>
 
-              {/* Uploaded Files List */}
               {uploadedFiles.length > 0 && (
                 <div className="mt-5">
-                  <p className="text-xs font-semibold tracking-wide text-muted mb-3">UPLOADED FILES ({uploadedFiles.length})</p>
-                  <div className="space-y-2 max-h-40 overflow-auto">
-                    {uploadedFiles.map((file, idx) => (
+                  <p className="mb-3 text-xs font-semibold tracking-wide text-muted">
+                    UPLOADED FILES ({uploadedFiles.length})
+                  </p>
+                  <div className="max-h-40 space-y-2 overflow-auto">
+                    {uploadedFiles.map((file, index) => (
                       <div
-                        key={idx}
+                        key={`${file}-${index}`}
                         className="flex items-center gap-3 rounded-[12px] border border-border bg-[rgba(255,255,255,0.03)] px-4 py-3"
                       >
-                        <svg className="h-5 w-5 text-accent2 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        <svg
+                          className="h-5 w-5 shrink-0 text-accent2"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+                          />
                         </svg>
-                        <span className="text-sm text-foreground truncate flex-1">{file}</span>
+                        <span className="flex-1 truncate text-sm text-foreground">
+                          {file}
+                        </span>
                         <button
                           type="button"
-                          onClick={() => setUploadedFiles((prev) => prev.filter((_, i) => i !== idx))}
-                          className="text-muted hover:text-foreground transition-colors"
+                          onClick={() =>
+                            setUploadedFiles((prev) =>
+                              prev.filter((_, idx) => idx !== index),
+                            )
+                          }
+                          className="text-muted transition-colors hover:text-foreground"
                           aria-label="Remove file"
                         >
-                          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          <svg
+                            className="h-4 w-4"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M6 18L18 6M6 6l12 12"
+                            />
                           </svg>
                         </button>
                       </div>
@@ -661,7 +939,7 @@ export default function ProjectDetailPage() {
               )}
             </div>
 
-            <div className="border-t border-border p-6 flex justify-end gap-3">
+            <div className="flex justify-end gap-3 border-t border-border p-6">
               <button
                 className="rounded-[12px] border border-border bg-[rgba(255,255,255,0.03)] px-4 py-2 text-sm font-semibold text-foreground transition-colors hover:bg-[rgba(255,255,255,0.06)]"
                 type="button"
@@ -674,57 +952,70 @@ export default function ProjectDetailPage() {
         </div>
       )}
 
-      {/* Task Detail Modal */}
       {selectedTask && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-          onClick={() => setSelectedTask(null)}
+          onClick={() => setSelectedTaskId(null)}
         >
           <div
-            className="card mx-4 w-full max-w-lg max-h-[85vh] overflow-hidden flex flex-col"
-            onClick={(e) => e.stopPropagation()}
+            className="card mx-4 flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden"
+            onClick={(event) => event.stopPropagation()}
           >
-            {/* Header */}
             <div className="flex items-start justify-between border-b border-border p-6">
-              <div className="flex-1 min-w-0 pr-4">
+              <div className="min-w-0 flex-1 pr-4">
                 <p className="text-xs font-semibold tracking-wide text-muted">TASK</p>
-                <h2 className="mt-1 text-xl font-semibold text-foreground">{selectedTask.title}</h2>
+                <h2 className="mt-1 text-xl font-semibold text-foreground">
+                  {selectedTask.title}
+                </h2>
               </div>
               <button
                 type="button"
-                onClick={() => setSelectedTask(null)}
+                onClick={() => setSelectedTaskId(null)}
                 className="rounded-lg p-2 text-muted transition-colors hover:bg-surface2 hover:text-foreground"
                 aria-label="Close"
               >
-                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                <svg
+                  className="h-5 w-5"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M6 18L18 6M6 6l12 12"
+                  />
                 </svg>
               </button>
             </div>
 
-            {/* Content */}
             <div className="flex-1 overflow-auto p-6">
-              {/* Task Info */}
               <div className="grid grid-cols-2 gap-4">
                 <div className="rounded-[14px] border border-border bg-[rgba(255,255,255,0.03)] p-4">
                   <p className="text-xs font-semibold text-muted">ASSIGNED TO</p>
-                  <p className="mt-2 text-lg font-semibold text-foreground">{selectedTask.assignedUser}</p>
+                  <p className="mt-2 text-lg font-semibold text-foreground">
+                    {selectedTask.assignedUser}
+                  </p>
                 </div>
                 <div className="rounded-[14px] border border-border bg-[rgba(255,255,255,0.03)] p-4">
                   <p className="text-xs font-semibold text-muted">DUE DATE</p>
-                  <p className="mt-2 text-lg font-semibold text-foreground">{selectedTask.dueDate}</p>
+                  <p className="mt-2 text-lg font-semibold text-foreground">
+                    {selectedTask.dueDate}
+                  </p>
                 </div>
               </div>
 
-              {/* Progress */}
               <div className="mt-4 rounded-[14px] border border-border bg-[rgba(255,255,255,0.03)] p-4">
                 <div className="flex items-center justify-between">
                   <p className="text-xs font-semibold text-muted">PROGRESS</p>
-                  <span className={`rounded-full border px-2 py-1 text-[11px] font-semibold ${
-                    selectedTask.completed
-                      ? "border-[rgba(96,165,250,0.35)] bg-[rgba(96,165,250,0.12)] text-foreground"
-                      : "border-border bg-[rgba(255,255,255,0.03)] text-muted"
-                  }`}>
+                  <span
+                    className={`rounded-full border px-2 py-1 text-[11px] font-semibold ${
+                      selectedTask.completed
+                        ? "border-[rgba(96,165,250,0.35)] bg-[rgba(96,165,250,0.12)] text-foreground"
+                        : "border-border bg-[rgba(255,255,255,0.03)] text-muted"
+                    }`}
+                  >
                     {selectedTask.completed ? "Done" : "Active"}
                   </span>
                 </div>
@@ -734,13 +1025,16 @@ export default function ProjectDetailPage() {
                     style={{ width: `${selectedTask.progressPercentage}%` }}
                   />
                 </div>
-                <p className="mt-2 text-sm text-muted">{selectedTask.progressPercentage}% complete</p>
+                <p className="mt-2 text-sm text-muted">
+                  {selectedTask.progressPercentage}% complete
+                </p>
               </div>
 
-              {/* Comments Section */}
               <div className="mt-6">
-                <p className="text-xs font-semibold tracking-wide text-muted">COMMENTS</p>
-                <div className="mt-3 space-y-3 max-h-[200px] overflow-auto">
+                <p className="text-xs font-semibold tracking-wide text-muted">
+                  COMMENTS
+                </p>
+                <div className="mt-3 max-h-[240px] space-y-3 overflow-auto">
                   {selectedTask.comments.length === 0 ? (
                     <div className="rounded-[12px] border border-border bg-[rgba(255,255,255,0.03)] p-4 text-center">
                       <p className="text-sm text-muted">No comments yet</p>
@@ -751,36 +1045,117 @@ export default function ProjectDetailPage() {
                         key={comment.id}
                         className="rounded-[12px] border border-border bg-[rgba(255,255,255,0.03)] p-3"
                       >
-                        <div className="flex items-center justify-between">
-                          <p className="text-sm font-semibold text-foreground">{comment.user}</p>
-                          <p className="text-xs text-muted">
-                            {comment.timestamp.toLocaleDateString()}
-                          </p>
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-semibold text-foreground">
+                              {comment.user}
+                            </p>
+                            <p className="text-xs text-muted">
+                              {comment.timestamp.toLocaleDateString()}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingCommentId(comment.id);
+                                setEditingCommentText(comment.text);
+                              }}
+                              className="rounded-lg p-1.5 text-muted transition-colors hover:bg-surface2 hover:text-foreground"
+                              aria-label="Edit comment"
+                            >
+                              <svg
+                                className="h-4 w-4"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2}
+                                  d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                                />
+                              </svg>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void handleDeleteComment(comment.id)}
+                              className="rounded-lg p-1.5 text-muted transition-colors hover:bg-[rgba(239,68,68,0.1)] hover:text-red-400"
+                              aria-label="Delete comment"
+                            >
+                              <svg
+                                className="h-4 w-4"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2}
+                                  d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                                />
+                              </svg>
+                            </button>
+                          </div>
                         </div>
-                        <p className="mt-1 text-sm text-muted">{comment.text}</p>
+
+                        {editingCommentId === comment.id ? (
+                          <div className="mt-3 space-y-2">
+                            <textarea
+                              className="input min-h-[84px] resize-none py-2 text-sm"
+                              value={editingCommentText}
+                              onChange={(event) =>
+                                setEditingCommentText(event.target.value)
+                              }
+                            />
+                            <div className="flex justify-end gap-2">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingCommentId(null);
+                                  setEditingCommentText("");
+                                }}
+                                className="rounded-[10px] border border-border bg-[rgba(255,255,255,0.03)] px-3 py-1.5 text-xs font-semibold text-muted transition-colors hover:text-foreground"
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void handleUpdateComment(comment.id)}
+                                disabled={!editingCommentText.trim()}
+                                className="rounded-[10px] border border-accent2/30 bg-accent2/20 px-3 py-1.5 text-xs font-semibold text-accent2 transition-colors hover:bg-accent2/30 disabled:opacity-50"
+                              >
+                                Save
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <p className="mt-2 text-sm text-muted">{comment.text}</p>
+                        )}
                       </div>
                     ))
                   )}
                 </div>
 
-                {/* Add Comment Input */}
                 <div className="mt-4 flex gap-2">
                   <input
                     type="text"
                     className="input flex-1"
                     placeholder="Add a comment..."
                     value={newComment}
-                    onChange={(e) => setNewComment(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && !e.shiftKey) {
-                        e.preventDefault();
-                        addComment(selectedTask.id, newComment);
+                    onChange={(event) => setNewComment(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" && !event.shiftKey) {
+                        event.preventDefault();
+                        void handleAddComment(selectedTask.id, newComment);
                       }
                     }}
                   />
                   <button
                     type="button"
-                    onClick={() => addComment(selectedTask.id, newComment)}
+                    onClick={() => void handleAddComment(selectedTask.id, newComment)}
                     className="rounded-[12px] border border-border bg-[rgba(255,255,255,0.03)] px-4 py-2 text-sm font-semibold text-foreground transition-colors hover:bg-[rgba(255,255,255,0.06)]"
                     disabled={!newComment.trim()}
                   >
@@ -790,30 +1165,37 @@ export default function ProjectDetailPage() {
               </div>
             </div>
 
-            {/* Footer - Mark Done */}
             <div className="border-t border-border p-6">
               <button
                 type="button"
-                onClick={() => {
-                  if (!selectedTask.completed) {
-                    completeTask(selectedTask.id);
-                  }
-                }}
+                onClick={() => void completeTask(selectedTask.id)}
                 disabled={selectedTask.completed}
                 className={`flex w-full items-center justify-center gap-3 rounded-[12px] border px-4 py-3 text-sm font-semibold transition-colors ${
                   selectedTask.completed
-                    ? "border-[rgba(96,165,250,0.35)] bg-[rgba(96,165,250,0.12)] text-foreground cursor-default"
+                    ? "cursor-default border-[rgba(96,165,250,0.35)] bg-[rgba(96,165,250,0.12)] text-foreground"
                     : "border-border bg-[rgba(255,255,255,0.03)] text-foreground hover:bg-[rgba(255,255,255,0.06)]"
                 }`}
               >
-                <span className={`flex h-5 w-5 items-center justify-center rounded border ${
-                  selectedTask.completed
-                    ? "border-accent2 bg-accent2"
-                    : "border-muted"
-                }`}>
+                <span
+                  className={`flex h-5 w-5 items-center justify-center rounded border ${
+                    selectedTask.completed
+                      ? "border-accent2 bg-accent2"
+                      : "border-muted"
+                  }`}
+                >
                   {selectedTask.completed && (
-                    <svg className="h-3 w-3 text-background" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                    <svg
+                      className="h-3 w-3 text-background"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      strokeWidth={3}
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M5 13l4 4L19 7"
+                      />
                     </svg>
                   )}
                 </span>
@@ -824,7 +1206,6 @@ export default function ProjectDetailPage() {
         </div>
       )}
 
-      {/* Chat Button */}
       <button
         type="button"
         aria-label="Chat"
@@ -835,47 +1216,67 @@ export default function ProjectDetailPage() {
         Chat
       </button>
 
-      {/* Submit Modal */}
       {isSubmitModalOpen && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-          onClick={() => !isSubmitting && !submitSuccess && setIsSubmitModalOpen(false)}
+          onClick={() =>
+            !isSubmitting && !submitSuccess && setIsSubmitModalOpen(false)
+          }
         >
-          <div className="card mx-4 w-full max-w-md p-6" onClick={(e) => e.stopPropagation()}>
+          <div
+            className="card mx-4 w-full max-w-md p-6"
+            onClick={(event) => event.stopPropagation()}
+          >
             {submitSuccess ? (
-              <>
-                <div className="flex flex-col items-center text-center">
-                  <div className="flex h-16 w-16 items-center justify-center rounded-full bg-[rgba(96,165,250,0.12)]">
-                    <svg className="h-8 w-8 text-accent2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                    </svg>
-                  </div>
-                  <h2 className="mt-4 text-xl font-semibold text-foreground">Project Submitted!</h2>
-                  <p className="mt-2 text-sm text-muted">
-                    Your project has been submitted for review. You will receive feedback within 24-48 hours.
-                  </p>
-                  <button
-                    className="btn mt-6"
-                    type="button"
-                    onClick={() => {
-                      setIsSubmitModalOpen(false);
-                      setSubmitSuccess(false);
-                    }}
+              <div className="flex flex-col items-center text-center">
+                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-[rgba(96,165,250,0.12)]">
+                  <svg
+                    className="h-8 w-8 text-accent2"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
                   >
-                    Done
-                  </button>
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M5 13l4 4L19 7"
+                    />
+                  </svg>
                 </div>
-              </>
+                <h2 className="mt-4 text-xl font-semibold text-foreground">
+                  Project Submitted!
+                </h2>
+                <p className="mt-2 text-sm text-muted">
+                  Your project has been submitted for review. You will receive
+                  feedback within 24-48 hours.
+                </p>
+                <button
+                  className="btn mt-6"
+                  type="button"
+                  onClick={() => {
+                    setIsSubmitModalOpen(false);
+                    setSubmitSuccess(false);
+                  }}
+                >
+                  Done
+                </button>
+              </div>
             ) : (
               <>
-                <h2 className="text-xl font-semibold text-foreground">Submit Project</h2>
+                <h2 className="text-xl font-semibold text-foreground">
+                  Submit Project
+                </h2>
                 <p className="mt-2 text-sm text-muted">
-                  Are you ready to submit this project for review? Make sure all tasks are completed.
+                  Are you ready to submit this project for review? Make sure all
+                  tasks are completed.
                 </p>
 
                 <div className="mt-6 rounded-[14px] border border-border bg-[rgba(255,255,255,0.03)] p-4">
                   <div className="flex items-center justify-between">
-                    <p className="text-sm font-semibold text-foreground">{initialProject.name}</p>
+                    <p className="text-sm font-semibold text-foreground">
+                      {project.name}
+                    </p>
                     <span className="rounded-full border border-border bg-[rgba(255,255,255,0.03)] px-3 py-1 text-xs font-semibold text-muted">
                       {wheelProgress}%
                     </span>
@@ -894,7 +1295,8 @@ export default function ProjectDetailPage() {
                 {wheelProgress < 100 && (
                   <div className="mt-4 rounded-[14px] border border-[rgba(236,72,153,0.35)] bg-[rgba(236,72,153,0.08)] p-4">
                     <p className="text-sm text-foreground">
-                      Warning: Some tasks are incomplete. You can still submit, but the project may require revisions.
+                      Warning: Some tasks are incomplete. You can still submit,
+                      but the project may require revisions.
                     </p>
                   </div>
                 )}
@@ -908,7 +1310,12 @@ export default function ProjectDetailPage() {
                   >
                     Cancel
                   </button>
-                  <button className="btn" type="button" onClick={handleSubmit} disabled={isSubmitting}>
+                  <button
+                    className="btn"
+                    type="button"
+                    onClick={handleSubmit}
+                    disabled={isSubmitting}
+                  >
                     {isSubmitting ? (
                       <>
                         <span className="h-4 w-4 animate-spin rounded-full border-2 border-background border-t-transparent" />
@@ -925,7 +1332,71 @@ export default function ProjectDetailPage() {
         </div>
       )}
 
-      {/* Project Spec Modal */}
+      {isProjectModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+          onClick={() => !isSavingProject && setIsProjectModalOpen(false)}
+        >
+          <div
+            className="card mx-4 w-full max-w-lg"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="border-b border-border p-6">
+              <h2 className="text-xl font-semibold text-foreground">
+                Edit Project
+              </h2>
+              <p className="mt-1 text-sm text-muted">
+                Update the project title and description.
+              </p>
+            </div>
+
+            <div className="space-y-5 p-6">
+              <div>
+                <label className="text-xs font-semibold tracking-wide text-muted">
+                  PROJECT NAME
+                </label>
+                <input
+                  type="text"
+                  className="input mt-2"
+                  value={projectName}
+                  onChange={(event) => setProjectName(event.target.value)}
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold tracking-wide text-muted">
+                  DESCRIPTION
+                </label>
+                <textarea
+                  className="input mt-2 min-h-[96px] resize-none"
+                  value={projectDescription}
+                  onChange={(event) => setProjectDescription(event.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 border-t border-border p-6">
+              <button
+                className="rounded-[12px] border border-border bg-[rgba(255,255,255,0.03)] px-4 py-2 text-sm font-semibold text-foreground transition-colors hover:bg-[rgba(255,255,255,0.06)]"
+                type="button"
+                onClick={() => setIsProjectModalOpen(false)}
+                disabled={isSavingProject}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn"
+                type="button"
+                onClick={() => void saveProjectDetails()}
+                disabled={isSavingProject || !projectName.trim()}
+              >
+                {isSavingProject ? "Saving..." : "Save Project"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {isSpecModalOpen && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
@@ -936,11 +1407,16 @@ export default function ProjectDetailPage() {
             setIsAddingTask(false);
           }}
         >
-          <div className="card mx-4 w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col" onClick={(e) => e.stopPropagation()}>
+          <div
+            className="card mx-4 flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden"
+            onClick={(event) => event.stopPropagation()}
+          >
             <div className="flex items-start justify-between border-b border-border p-6">
               <div>
-                <h2 className="text-xl font-semibold text-foreground">Project Specification</h2>
-                <p className="mt-1 text-sm text-muted">{initialProject.name}</p>
+                <h2 className="text-xl font-semibold text-foreground">
+                  Project Specification
+                </h2>
+                <p className="mt-1 text-sm text-muted">{project.name}</p>
               </div>
               <div className="flex items-center gap-2">
                 <button
@@ -948,8 +1424,8 @@ export default function ProjectDetailPage() {
                   onClick={() => setIsEditingSpec(!isEditingSpec)}
                   className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
                     isEditingSpec
-                      ? "bg-accent2/20 text-accent2 border border-accent2/30"
-                      : "bg-[rgba(255,255,255,0.03)] text-muted hover:text-foreground border border-border"
+                      ? "border border-accent2/30 bg-accent2/20 text-accent2"
+                      : "border border-border bg-[rgba(255,255,255,0.03)] text-muted hover:text-foreground"
                   }`}
                 >
                   {isEditingSpec ? "Done Editing" : "Edit Spec"}
@@ -964,17 +1440,29 @@ export default function ProjectDetailPage() {
                   }}
                   className="rounded-lg p-2 text-muted transition-colors hover:bg-surface2 hover:text-foreground"
                 >
-                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  <svg
+                    className="h-5 w-5"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M6 18L18 6M6 6l12 12"
+                    />
                   </svg>
                 </button>
               </div>
             </div>
 
-            <div className="flex-1 overflow-auto p-6 space-y-6">
+            <div className="flex-1 space-y-6 overflow-auto p-6">
               <div>
                 <h3 className="text-sm font-semibold text-muted">DESCRIPTION</h3>
-                <p className="mt-2 text-sm leading-relaxed text-foreground">{initialProject.shortDescription}</p>
+                <p className="mt-2 text-sm leading-relaxed text-foreground">
+                  {project.shortDescription}
+                </p>
               </div>
 
               <div>
@@ -1004,25 +1492,39 @@ export default function ProjectDetailPage() {
                       onClick={() => setIsAddingTask(true)}
                       className="flex items-center gap-1 rounded-full border border-accent2/30 bg-accent2/10 px-3 py-1 text-xs font-semibold text-accent2 transition-colors hover:bg-accent2/20"
                     >
-                      <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                      <svg
+                        className="h-3 w-3"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M12 4v16m8-8H4"
+                        />
                       </svg>
                       Add Task
                     </button>
                   )}
                 </div>
 
-                {/* Add new task form */}
                 {isAddingTask && (
                   <div className="mt-3 rounded-[12px] border border-accent2/30 bg-accent2/5 p-4">
-                    <p className="text-xs font-semibold text-accent2 mb-3">NEW TASK</p>
+                    <p className="mb-3 text-xs font-semibold text-accent2">NEW TASK</p>
                     <div className="space-y-3">
                       <input
                         type="text"
                         className="input py-2 text-sm"
                         placeholder="Task title..."
                         value={newSpecTask.title}
-                        onChange={(e) => setNewSpecTask((prev) => ({ ...prev, title: e.target.value }))}
+                        onChange={(event) =>
+                          setNewSpecTask((prev) => ({
+                            ...prev,
+                            title: event.target.value,
+                          }))
+                        }
                       />
                       <div className="grid grid-cols-2 gap-3">
                         <input
@@ -1030,14 +1532,24 @@ export default function ProjectDetailPage() {
                           className="input py-2 text-sm"
                           placeholder="Assigned to..."
                           value={newSpecTask.assignedUser}
-                          onChange={(e) => setNewSpecTask((prev) => ({ ...prev, assignedUser: e.target.value }))}
+                          onChange={(event) =>
+                            setNewSpecTask((prev) => ({
+                              ...prev,
+                              assignedUser: event.target.value,
+                            }))
+                          }
                         />
                         <input
                           type="text"
                           className="input py-2 text-sm"
                           placeholder="Due date..."
                           value={newSpecTask.dueDate}
-                          onChange={(e) => setNewSpecTask((prev) => ({ ...prev, dueDate: e.target.value }))}
+                          onChange={(event) =>
+                            setNewSpecTask((prev) => ({
+                              ...prev,
+                              dueDate: event.target.value,
+                            }))
+                          }
                         />
                       </div>
                       <div className="flex justify-end gap-2">
@@ -1045,7 +1557,11 @@ export default function ProjectDetailPage() {
                           type="button"
                           onClick={() => {
                             setIsAddingTask(false);
-                            setNewSpecTask({ title: "", assignedUser: "", dueDate: "" });
+                            setNewSpecTask({
+                              title: "",
+                              assignedUser: "",
+                              dueDate: "",
+                            });
                           }}
                           className="rounded-[10px] border border-border bg-[rgba(255,255,255,0.03)] px-3 py-1.5 text-xs font-semibold text-muted transition-colors hover:text-foreground"
                         >
@@ -1053,7 +1569,7 @@ export default function ProjectDetailPage() {
                         </button>
                         <button
                           type="button"
-                          onClick={addSpecTask}
+                          onClick={() => void addSpecTask()}
                           disabled={!newSpecTask.title.trim()}
                           className="rounded-[10px] border border-accent2/30 bg-accent2/20 px-3 py-1.5 text-xs font-semibold text-accent2 transition-colors hover:bg-accent2/30 disabled:opacity-50"
                         >
@@ -1064,38 +1580,46 @@ export default function ProjectDetailPage() {
                   </div>
                 )}
 
-                <div className="mt-3 space-y-2 max-h-[280px] overflow-auto">
+                <div className="mt-3 max-h-[280px] space-y-2 overflow-auto">
                   {tasks.length === 0 ? (
                     <div className="rounded-[12px] border border-dashed border-border bg-[rgba(255,255,255,0.02)] p-6 text-center">
                       <p className="text-sm text-muted">No tasks yet</p>
-                      <p className="mt-1 text-xs text-muted">Click "Add Task" to create spec tasks</p>
+                      <p className="mt-1 text-xs text-muted">
+                        Click &quot;Add Task&quot; to create spec tasks
+                      </p>
                     </div>
                   ) : (
                     tasks.map((task) => (
-                      <div key={task.id} className="rounded-[12px] border border-border bg-[rgba(255,255,255,0.03)] p-3">
+                      <div
+                        key={task.id}
+                        className="rounded-[12px] border border-border bg-[rgba(255,255,255,0.03)] p-3"
+                      >
                         {editingTaskId === task.id ? (
                           <div className="space-y-3">
                             <input
                               type="text"
                               className="input py-2 text-sm"
-                              placeholder="Task title..."
                               value={editTaskTitle}
-                              onChange={(e) => setEditTaskTitle(e.target.value)}
+                              onChange={(event) =>
+                                setEditTaskTitle(event.target.value)
+                              }
                             />
                             <div className="grid grid-cols-2 gap-3">
                               <input
                                 type="text"
                                 className="input py-2 text-sm"
-                                placeholder="Assigned to..."
                                 value={editTaskAssignedUser}
-                                onChange={(e) => setEditTaskAssignedUser(e.target.value)}
+                                onChange={(event) =>
+                                  setEditTaskAssignedUser(event.target.value)
+                                }
                               />
                               <input
                                 type="text"
                                 className="input py-2 text-sm"
-                                placeholder="Due date..."
                                 value={editTaskDueDate}
-                                onChange={(e) => setEditTaskDueDate(e.target.value)}
+                                onChange={(event) =>
+                                  setEditTaskDueDate(event.target.value)
+                                }
                               />
                             </div>
                             <div className="flex justify-end gap-2">
@@ -1108,7 +1632,7 @@ export default function ProjectDetailPage() {
                               </button>
                               <button
                                 type="button"
-                                onClick={saveEditTask}
+                                onClick={() => void saveEditTask()}
                                 disabled={!editTaskTitle.trim()}
                                 className="rounded-[10px] border border-accent2/30 bg-accent2/20 px-3 py-1.5 text-xs font-semibold text-accent2 transition-colors hover:bg-accent2/30 disabled:opacity-50"
                               >
@@ -1119,7 +1643,9 @@ export default function ProjectDetailPage() {
                         ) : (
                           <div className="flex items-center justify-between gap-3">
                             <div className="min-w-0 flex-1">
-                              <p className="text-sm font-semibold text-foreground">{task.title}</p>
+                              <p className="text-sm font-semibold text-foreground">
+                                {task.title}
+                              </p>
                               <div className="mt-1 flex items-center gap-3 text-xs text-muted">
                                 <span>{task.assignedUser}</span>
                                 <span className="h-1 w-1 rounded-full bg-border" />
@@ -1140,18 +1666,38 @@ export default function ProjectDetailPage() {
                                   className="rounded-lg p-1.5 text-muted transition-colors hover:bg-surface2 hover:text-foreground"
                                   aria-label="Edit task"
                                 >
-                                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                  <svg
+                                    className="h-4 w-4"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                  >
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      strokeWidth={2}
+                                      d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                                    />
                                   </svg>
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => deleteSpecTask(task.id)}
+                                  onClick={() => void deleteSpecTask(task.id)}
                                   className="rounded-lg p-1.5 text-muted transition-colors hover:bg-[rgba(239,68,68,0.1)] hover:text-red-400"
                                   aria-label="Delete task"
                                 >
-                                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                  <svg
+                                    className="h-4 w-4"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                  >
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      strokeWidth={2}
+                                      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                                    />
                                   </svg>
                                 </button>
                               </div>
@@ -1175,14 +1721,12 @@ export default function ProjectDetailPage() {
         </div>
       )}
 
-      {/* Chat Panel */}
       {isChatOpen && (
         <div className="fixed bottom-0 left-0 z-50 m-4 w-80 sm:w-96">
           <div className="card flex h-[480px] flex-col overflow-hidden">
-            {/* Chat Header */}
             <div className="flex items-center justify-between border-b border-border p-4">
               <div className="flex items-center gap-2">
-                <span className="h-2 w-2 rounded-full bg-accent2 animate-pulse" />
+                <span className="h-2 w-2 animate-pulse rounded-full bg-accent2" />
                 <p className="font-semibold text-foreground">Project Chat</p>
               </div>
               <button
@@ -1190,33 +1734,43 @@ export default function ProjectDetailPage() {
                 onClick={() => setIsChatOpen(false)}
                 className="rounded-lg p-2 text-muted transition-colors hover:bg-surface2 hover:text-foreground"
               >
-                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                <svg
+                  className="h-5 w-5"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M6 18L18 6M6 6l12 12"
+                  />
                 </svg>
               </button>
             </div>
 
-            {/* Chat Messages */}
-            <div className="flex-1 overflow-auto p-4 space-y-3">
-              {chatMessages.map((msg) => (
+            <div className="flex-1 space-y-3 overflow-auto p-4">
+              {chatMessages.map((message) => (
                 <div
-                  key={msg.id}
-                  className={`flex ${msg.sender === "user" ? "justify-end" : "justify-start"}`}
+                  key={message.id}
+                  className={`flex ${
+                    message.sender === "user" ? "justify-end" : "justify-start"
+                  }`}
                 >
                   <div
                     className={`max-w-[80%] rounded-[12px] px-3 py-2 text-sm ${
-                      msg.sender === "user"
+                      message.sender === "user"
                         ? "bg-gradient-to-r from-accent to-accent2 text-background"
                         : "bg-surface2 text-foreground"
                     }`}
                   >
-                    {msg.text}
+                    {message.text}
                   </div>
                 </div>
               ))}
             </div>
 
-            {/* Chat Input */}
             <div className="border-t border-border p-4">
               <div className="flex gap-2">
                 <input
@@ -1224,10 +1778,10 @@ export default function ProjectDetailPage() {
                   className="input flex-1"
                   placeholder="Type a message..."
                   value={chatInput}
-                  onChange={(e) => setChatInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault();
+                  onChange={(event) => setChatInput(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && !event.shiftKey) {
+                      event.preventDefault();
                       handleSendMessage();
                     }
                   }}
@@ -1238,8 +1792,18 @@ export default function ProjectDetailPage() {
                   className="btn px-4"
                   disabled={!chatInput.trim()}
                 >
-                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                  <svg
+                    className="h-5 w-5"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"
+                    />
                   </svg>
                 </button>
               </div>
@@ -1248,7 +1812,6 @@ export default function ProjectDetailPage() {
         </div>
       )}
 
-      {/* Toast notifications */}
       <ToastContainer toasts={toast.toasts} onDismiss={toast.dismissToast} />
     </>
   );

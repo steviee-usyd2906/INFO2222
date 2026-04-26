@@ -1,15 +1,18 @@
 "use client";
 
-import { useState, useMemo } from "react";
-import { dummyProjects, type Project, type ProjectTask } from "../src/data/dummyProjects";
+import { useEffect, useState, useMemo } from "react";
+import type { Project } from "../src/data/dummyProjects";
 import ProjectShelf from "../src/components/ProjectShelf";
+import { createProject as createProjectRequest, fetchProjects } from "../src/lib/project-api";
 
 export default function Home() {
   const [searchQuery, setSearchQuery] = useState("");
   const [isConnectModalOpen, setIsConnectModalOpen] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
-  const [projects, setProjects] = useState<Project[]>(dummyProjects);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [isLoadingProjects, setIsLoadingProjects] = useState(true);
+  const [projectsError, setProjectsError] = useState<string | null>(null);
   
   // Create Project Modal State
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -17,6 +20,42 @@ export default function Home() {
   const [newProjectDescription, setNewProjectDescription] = useState("");
   const [newProjectTasks, setNewProjectTasks] = useState<{ title: string; assignedUser: string; dueDate: string }[]>([]);
   const [isCreating, setIsCreating] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadProjects() {
+      try {
+        setIsLoadingProjects(true);
+        setProjectsError(null);
+        const nextProjects = await fetchProjects();
+
+        if (!isMounted) {
+          return;
+        }
+
+        setProjects(nextProjects);
+      } catch (error) {
+        if (!isMounted) {
+          return;
+        }
+
+        setProjectsError(
+          error instanceof Error ? error.message : "Failed to load projects.",
+        );
+      } finally {
+        if (isMounted) {
+          setIsLoadingProjects(false);
+        }
+      }
+    }
+
+    loadProjects();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const filteredProjects = useMemo(() => {
     if (!searchQuery.trim()) return projects;
@@ -64,34 +103,27 @@ export default function Home() {
     if (!newProjectName.trim()) return;
     
     setIsCreating(true);
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    
-    const newTasks: ProjectTask[] = newProjectTasks
-      .filter((t) => t.title.trim())
-      .map((t, i) => ({
-        id: `task-${Date.now()}-${i}`,
-        title: t.title,
-        progressPercentage: 0,
-        assignedUser: t.assignedUser || "Unassigned",
-        completed: false,
-        dueDate: t.dueDate || "TBD",
-        comments: [],
-      }));
-    
-    const newProject: Project = {
-      id: `proj-${Date.now()}`,
-      name: newProjectName,
-      shortDescription: newProjectDescription || "No description provided.",
-      progressPercentage: 0,
-      tasks: newTasks,
-    };
-    
-    setProjects((prev) => [newProject, ...prev]);
-    setNewProjectName("");
-    setNewProjectDescription("");
-    setNewProjectTasks([]);
-    setIsCreating(false);
-    setIsCreateModalOpen(false);
+
+    try {
+      const newProject = await createProjectRequest({
+        name: newProjectName,
+        shortDescription: newProjectDescription,
+        tasks: newProjectTasks,
+      });
+
+      setProjects((prev) => [newProject, ...prev]);
+      setNewProjectName("");
+      setNewProjectDescription("");
+      setNewProjectTasks([]);
+      setIsCreateModalOpen(false);
+      setProjectsError(null);
+    } catch (error) {
+      setProjectsError(
+        error instanceof Error ? error.message : "Failed to create project.",
+      );
+    } finally {
+      setIsCreating(false);
+    }
   };
 
   return (
@@ -154,7 +186,19 @@ export default function Home() {
           </p>
         </div>
 
-        {filteredProjects.length > 0 ? (
+        {projectsError ? (
+          <div className="card flex flex-col items-center justify-center py-16 text-center">
+            <p className="text-lg font-semibold text-foreground">Projects unavailable</p>
+            <p className="mt-2 max-w-md text-sm text-muted">
+              {projectsError}
+            </p>
+          </div>
+        ) : isLoadingProjects ? (
+          <div className="card flex flex-col items-center justify-center py-16 text-center">
+            <p className="text-lg font-semibold text-foreground">Loading projects</p>
+            <p className="mt-2 text-sm text-muted">Fetching your dashboard data...</p>
+          </div>
+        ) : filteredProjects.length > 0 ? (
           <ProjectShelf projects={filteredProjects} />
         ) : (
           <div className="card flex flex-col items-center justify-center py-16 text-center">
@@ -244,7 +288,7 @@ export default function Home() {
                 {newProjectTasks.length === 0 ? (
                   <div className="mt-3 rounded-[12px] border border-dashed border-border bg-[rgba(255,255,255,0.02)] p-6 text-center">
                     <p className="text-sm text-muted">No tasks added yet</p>
-                    <p className="mt-1 text-xs text-muted">Click "Add Task" to create spec tasks</p>
+                    <p className="mt-1 text-xs text-muted">Click &quot;Add Task&quot; to create spec tasks</p>
                   </div>
                 ) : (
                   <div className="mt-3 space-y-3 max-h-[200px] overflow-auto">
