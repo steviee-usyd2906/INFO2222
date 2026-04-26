@@ -1,0 +1,9 @@
+⚠ Port 3000 is in use by process 26400, using available port 3001 instead.
+⨯ Another next dev server is already running.
+
+- Local:        http://localhost:3000
+- PID:          26400
+- Dir:          C:\Users\DELL\Desktop\Uni\INFO2222\INFO2222
+- Log:          .next\dev\logs\next-development.log
+
+Run taskkill /PID 26400 /F to stop it.
