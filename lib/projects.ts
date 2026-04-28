@@ -95,11 +95,18 @@ function clampProgress(value: number) {
   return Math.max(0, Math.min(100, value));
 }
 
+function getNormalizedTaskProgress(task: {
+  progressPercentage: number;
+  completed: boolean;
+}) {
+  return task.completed ? 100 : clampProgress(task.progressPercentage);
+}
+
 function getProjectProgress(tasks: ProjectTask[]) {
   if (!tasks.length) return 0;
 
   const total = tasks.reduce(
-    (sum, task) => sum + clampProgress(task.progressPercentage),
+    (sum, task) => sum + getNormalizedTaskProgress(task),
     0,
   );
 
@@ -121,12 +128,16 @@ function buildProject(row: ProjectRow, tasks: ProjectTask[]): Project {
 }
 
 function buildTask(row: TaskRow, comments: TaskComment[]): ProjectTask {
+  const completed = Boolean(row.completed);
+
   return {
     id: row.id,
     title: row.title,
-    progressPercentage: clampProgress(row.progress_percentage ?? 0),
+    progressPercentage: completed
+      ? 100
+      : clampProgress(row.progress_percentage ?? 0),
     assignedUser: row.assigned_user ?? "Unassigned",
-    completed: Boolean(row.completed),
+    completed,
     dueDate: row.due_date ?? "TBD",
     comments,
   };

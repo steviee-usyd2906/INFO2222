@@ -39,10 +39,16 @@ function clamp01(value: number) {
   return Math.max(0, Math.min(1, value));
 }
 
+function getTaskProgress(task: ProjectTask) {
+  return task.completed
+    ? 100
+    : Math.max(0, Math.min(100, task.progressPercentage));
+}
+
 function getWheelProgress(tasks: ProjectTask[]) {
   if (!tasks.length) return 0;
   const total = tasks.reduce(
-    (sum, task) => sum + Math.max(0, Math.min(100, task.progressPercentage)),
+    (sum, task) => sum + getTaskProgress(task),
     0,
   );
   return Math.round(total / tasks.length);
@@ -887,15 +893,14 @@ export default function ProjectDetailPage() {
                 </div>
               ) : (
                 displayedTasks.map((task) => {
-                  const progress = Math.round(
-                    Math.max(0, Math.min(100, task.progressPercentage)),
-                  );
+                  const progress = Math.round(getTaskProgress(task));
                   const isDragging = draggingTaskId === task.id;
 
                   return (
-                    <button
+                    <div
                       key={task.id}
-                      type="button"
+                      role="button"
+                      tabIndex={0}
                       draggable={!task.completed}
                       onDragStart={
                         task.completed ? undefined : handleDragStartTask(task.id)
@@ -907,6 +912,11 @@ export default function ProjectDetailPage() {
                       onDragEnd={() => {
                         setDraggingTaskId(null);
                         setDropActive(false);
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key !== "Enter" && event.key !== " ") return;
+                        event.preventDefault();
+                        setSelectedTaskId(task.id);
                       }}
                       className={`group rounded-[16px] border border-border bg-[rgba(255,255,255,0.03)] p-4 text-left shadow-[0_18px_60px_rgba(0,0,0,0.30)] transition-transform duration-200 ease-out hover:-translate-y-0.5 focus:outline-none focus-visible:ring-4 focus-visible:ring-[rgba(96,165,250,0.18)] ${
                         task.completed ? "opacity-80" : ""
@@ -949,7 +959,7 @@ export default function ProjectDetailPage() {
                           style={{ width: `${progress}%` }}
                         />
                       </div>
-                    </button>
+                    </div>
                   );
                 })
               )}
@@ -1187,11 +1197,11 @@ export default function ProjectDetailPage() {
                 <div className="mt-3 h-2 overflow-hidden rounded-full bg-surface2">
                   <div
                     className="h-full rounded-full bg-gradient-to-r from-accent to-accent2"
-                    style={{ width: `${selectedTask.progressPercentage}%` }}
+                    style={{ width: `${getTaskProgress(selectedTask)}%` }}
                   />
                 </div>
                 <p className="mt-2 text-sm text-muted">
-                  {selectedTask.progressPercentage}% complete
+                  {getTaskProgress(selectedTask)}% complete
                 </p>
               </div>
 

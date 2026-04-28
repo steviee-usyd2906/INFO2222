@@ -33,6 +33,10 @@ function clamp100(v: number) {
   return Math.max(0, Math.min(100, v));
 }
 
+function getTaskProgress(task: ProjectTask) {
+  return task.completed ? 100 : clamp100(task.progressPercentage);
+}
+
 function easeOutCubic(t: number) {
   return 1 - Math.pow(1 - t, 3);
 }
@@ -86,7 +90,7 @@ export default function ProgressWheel({ value, tasks, size = 300 }: ProgressWhee
     return grouped.map((g, i) => {
       const weightPercentage = (g.tasks.length / totalTasks) * 100;
       const avg =
-        g.tasks.reduce((acc, t) => acc + clamp100(t.progressPercentage), 0) / g.tasks.length;
+        g.tasks.reduce((acc, t) => acc + getTaskProgress(t), 0) / g.tasks.length;
       return {
         label: g.label,
         tasks: g.tasks,

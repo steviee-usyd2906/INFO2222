@@ -220,11 +220,11 @@ export default function Home() {
       {/* Create Project Modal */}
       {isCreateModalOpen && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+          className="fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto bg-[rgba(5,8,18,0.82)] p-4 backdrop-blur-md sm:items-center sm:p-6"
           onClick={() => !isCreating && setIsCreateModalOpen(false)}
         >
           <div
-            className="card mx-4 w-full max-w-lg max-h-[85vh] overflow-hidden flex flex-col"
+            className="card isolate my-8 flex max-h-[min(85vh,920px)] w-full max-w-xl flex-col overflow-hidden border-[rgba(255,255,255,0.16)] bg-[rgba(10,14,28,0.96)] shadow-[0_36px_120px_rgba(0,0,0,0.48)]"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between border-b border-border p-6">
@@ -373,11 +373,11 @@ export default function Home() {
       {/* Connect Modal */}
       {isConnectModalOpen && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+          className="fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto bg-[rgba(5,8,18,0.82)] p-4 backdrop-blur-md sm:items-center sm:p-6"
           onClick={() => !isConnecting && setIsConnectModalOpen(false)}
         >
           <div
-            className="card mx-4 w-full max-w-md p-6"
+            className="card isolate my-8 w-full max-w-md border-[rgba(255,255,255,0.16)] bg-[rgba(10,14,28,0.96)] p-6 shadow-[0_36px_120px_rgba(0,0,0,0.48)]"
             onClick={(e) => e.stopPropagation()}
           >
             <h2 className="text-xl font-semibold text-foreground">Connect Device</h2>
