@@ -22,14 +22,31 @@ async function requestJson<T>(input: RequestInfo, init?: RequestInit) {
   return data;
 }
 
+function reviveProject(project: Project): Project {
+  return {
+    ...project,
+    tasks: Array.isArray(project.tasks)
+      ? project.tasks.map((task) => ({
+          ...task,
+          comments: Array.isArray(task.comments)
+            ? task.comments.map((comment) => ({
+                ...comment,
+                timestamp: new Date(comment.timestamp),
+              }))
+            : [],
+        }))
+      : [],
+  };
+}
+
 export async function fetchProjects() {
   const data = await requestJson<{ projects: Project[] }>("/api/projects");
-  return data.projects;
+  return data.projects.map(reviveProject);
 }
 
 export async function fetchProject(projectId: string) {
   const data = await requestJson<{ project: Project }>(`/api/projects/${projectId}`);
-  return data.project;
+  return reviveProject(data.project);
 }
 
 export async function createProject(payload: {
@@ -42,7 +59,7 @@ export async function createProject(payload: {
     body: JSON.stringify(payload),
   });
 
-  return data.project;
+  return reviveProject(data.project);
 }
 
 export async function updateProject(
@@ -54,7 +71,7 @@ export async function updateProject(
     body: JSON.stringify(payload),
   });
 
-  return data.project;
+  return reviveProject(data.project);
 }
 
 export async function deleteProject(projectId: string) {
@@ -72,7 +89,7 @@ export async function createTask(
     body: JSON.stringify(payload),
   });
 
-  return data.project;
+  return reviveProject(data.project);
 }
 
 export async function updateTask(
@@ -90,7 +107,7 @@ export async function updateTask(
     body: JSON.stringify(payload),
   });
 
-  return data.project;
+  return reviveProject(data.project);
 }
 
 export async function deleteTask(taskId: string) {
@@ -98,7 +115,7 @@ export async function deleteTask(taskId: string) {
     method: "DELETE",
   });
 
-  return data.project;
+  return reviveProject(data.project);
 }
 
 export async function createComment(
@@ -110,7 +127,7 @@ export async function createComment(
     body: JSON.stringify(payload),
   });
 
-  return data.project;
+  return reviveProject(data.project);
 }
 
 export async function updateComment(
@@ -122,7 +139,7 @@ export async function updateComment(
     body: JSON.stringify(payload),
   });
 
-  return data.project;
+  return reviveProject(data.project);
 }
 
 export async function deleteComment(commentId: string) {
@@ -130,5 +147,5 @@ export async function deleteComment(commentId: string) {
     method: "DELETE",
   });
 
-  return data.project;
+  return reviveProject(data.project);
 }

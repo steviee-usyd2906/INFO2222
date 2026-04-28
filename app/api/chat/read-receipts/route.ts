@@ -11,7 +11,9 @@ export async function POST(request: Request) {
       typeof body.conversationId === "string" ? body.conversationId : "";
     const username = typeof body.username === "string" ? body.username.trim() : "";
     const messageIds = Array.isArray(body.messageIds)
-      ? body.messageIds.filter((id) => typeof id === "string")
+      ? body.messageIds.filter(
+          (id: unknown): id is string => typeof id === "string",
+        )
       : [];
 
     if (!UUID_REGEX.test(conversationId) || !username) {
