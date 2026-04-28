@@ -17,6 +17,23 @@ import {
   updateProject,
   updateTask,
 } from "../../../src/lib/project-api";
+import {
+  buildSignaturePayload,
+  decryptMessage,
+  deriveRatchetMessageKey,
+  deriveSharedAesKey,
+  encryptMessage,
+  generateRuntimeKeyBundle,
+  importSigningPublicKeyFromBase64,
+  signPayload,
+  verifyPayloadSignature,
+} from "../../../src/lib/e2ee";
+import {
+  bootstrapSecureChat,
+  fetchEncryptedMessages,
+  markReadReceipts,
+  postEncryptedMessage,
+} from "../../../src/lib/secure-chat-api";
 
 function clamp01(value: number) {
   return Math.max(0, Math.min(1, value));
@@ -36,6 +53,19 @@ type ChatMessage = {
   sender: "user" | "system";
   text: string;
   timestamp: Date;
+  isSignatureValid?: boolean;
+  readByCount?: number;
+};
+
+type SecureChatContext = {
+  username: string;
+  conversationId: string;
+  senderSigningKeyId: string;
+  senderExchangePublicKey: string;
+  signingPrivateKey: CryptoKey;
+  baseMessageKey: CryptoKey;
+  chainIndex: number;
+  consumedPreKeyId?: string;
 };
 
 export default function ProjectDetailPage() {
@@ -96,6 +126,12 @@ export default function ProjectDetailPage() {
     },
   ]);
   const [chatInput, setChatInput] = useState("");
+  const [chatUsername, setChatUsername] = useState("You");
+  const [chatPassphrase, setChatPassphrase] = useState("");
+  const [isBootstrappingChat, setIsBootstrappingChat] = useState(false);
+  const [secureChatError, setSecureChatError] = useState<string | null>(null);
+  const [secureChatContext, setSecureChatContext] =
+    useState<SecureChatContext | null>(null);
 
   const tasks = useMemo(() => project?.tasks ?? [], [project]);
   const selectedTask = useMemo(
@@ -279,36 +315,165 @@ export default function ProjectDetailPage() {
     }
   };
 
-  const handleSendMessage = () => {
-    if (!chatInput.trim()) return;
+  const refreshSecureMessages = useCallback(
+    async (context: SecureChatContext) => {
+      const encryptedRows = await fetchEncryptedMessages(context.conversationId);
+      const nextMessages: ChatMessage[] = [];
+      const incomingMessageIds: string[] = [];
 
-    const userMessage: ChatMessage = {
-      id: Date.now().toString(),
-      sender: "user",
-      text: chatInput,
-      timestamp: new Date(),
-    };
+      for (const row of encryptedRows) {
+        const signaturePayload = buildSignaturePayload({
+          conversationId: context.conversationId,
+          ciphertextB64: row.encryptedContent,
+          ivB64: row.iv,
+          authTagB64: row.authTag,
+          chainIndex: row.chainIndex,
+        });
+        const senderPublicSigningKey = await importSigningPublicKeyFromBase64(
+          row.senderSigningPublicKey,
+        );
+        const signatureOk = await verifyPayloadSignature(
+          signaturePayload,
+          row.signature,
+          senderPublicSigningKey,
+        );
 
-    setChatMessages((prev) => [...prev, userMessage]);
-    setChatInput("");
+        // Ratchet progression: derive a unique AES key per message index.
+        // This demonstrates key evolution instead of a single static chat key.
+        const perMessageKey = await deriveRatchetMessageKey(
+          context.baseMessageKey,
+          row.chainIndex,
+        );
+        const plainText = await decryptMessage(
+          row.encryptedContent,
+          row.iv,
+          row.authTag,
+          perMessageKey,
+        );
 
-    setTimeout(() => {
-      const responses = [
-        "I understand. Let me check on that for you.",
-        `The ${project?.name ?? "project"} is currently at ${wheelProgress}% completion.`,
-        "Great question! The team is making good progress on the remaining tasks.",
-        "I can help you with that. What specific information do you need?",
-        `There are ${totalCount - completedCount} tasks remaining in this project.`,
-      ];
-      const reply: ChatMessage = {
-        id: `${Date.now()}-system`,
-        sender: "system",
-        text: responses[Math.floor(Math.random() * responses.length)],
-        timestamp: new Date(),
+        const isOwn = row.senderUsername === context.username;
+        if (!isOwn) {
+          incomingMessageIds.push(row.id);
+        }
+
+        nextMessages.push({
+          id: row.id,
+          sender: isOwn ? "user" : "system",
+          text: plainText,
+          timestamp: new Date(row.createdAt),
+          isSignatureValid: signatureOk,
+          readByCount: row.readByCount,
+        });
+      }
+
+      setChatMessages(nextMessages);
+
+      // Read receipts: acknowledge all received messages for this viewer.
+      if (incomingMessageIds.length > 0) {
+        await markReadReceipts({
+          conversationId: context.conversationId,
+          username: context.username,
+          messageIds: incomingMessageIds,
+        });
+      }
+    },
+    [],
+  );
+
+  const initializeSecureChat = useCallback(async () => {
+    if (!chatUsername.trim() || !chatPassphrase.trim()) {
+      setSecureChatError("Username and passphrase are required.");
+      return;
+    }
+
+    try {
+      setIsBootstrappingChat(true);
+      setSecureChatError(null);
+
+      const runtimeBundle = await generateRuntimeKeyBundle(chatPassphrase);
+      const bootstrap = await bootstrapSecureChat(
+        chatUsername.trim(),
+        runtimeBundle.serverPayload,
+      );
+
+      // Demo key agreement: derive shared AES key from our own X25519 key pair.
+      // In the next phase, replace this with sender<->recipient key agreement using pre-keys.
+      const sharedMessageKey = await deriveSharedAesKey(
+        runtimeBundle.exchangePrivateKey,
+        bootstrap.keyBundle.exchangePublicKey,
+      );
+
+      const context: SecureChatContext = {
+        username: bootstrap.username,
+        conversationId: bootstrap.conversationId,
+        senderSigningKeyId: bootstrap.keyBundle.signingKeyId,
+        senderExchangePublicKey: bootstrap.keyBundle.exchangePublicKey,
+        signingPrivateKey: runtimeBundle.signingPrivateKey,
+        baseMessageKey: sharedMessageKey,
+        chainIndex: 0,
+        consumedPreKeyId: bootstrap.consumedPreKey?.id,
       };
-      setChatMessages((prev) => [...prev, reply]);
-    }, 1000);
+
+      setSecureChatContext(context);
+      await refreshSecureMessages(context);
+    } catch (error) {
+      setSecureChatError(
+        error instanceof Error ? error.message : "Failed to initialize secure chat.",
+      );
+    } finally {
+      setIsBootstrappingChat(false);
+    }
+  }, [chatPassphrase, chatUsername, refreshSecureMessages]);
+
+  const handleSendMessage = async () => {
+    if (!chatInput.trim() || !secureChatContext) return;
+
+    try {
+      const nextChainIndex = secureChatContext.chainIndex + 1;
+      const perMessageKey = await deriveRatchetMessageKey(
+        secureChatContext.baseMessageKey,
+        nextChainIndex,
+      );
+      const encrypted = await encryptMessage(chatInput.trim(), perMessageKey);
+      const signaturePayload = buildSignaturePayload({
+        conversationId: secureChatContext.conversationId,
+        ciphertextB64: encrypted.ciphertextB64,
+        ivB64: encrypted.ivB64,
+        authTagB64: encrypted.authTagB64,
+        chainIndex: nextChainIndex,
+      });
+      const signature = await signPayload(
+        signaturePayload,
+        secureChatContext.signingPrivateKey,
+      );
+
+      await postEncryptedMessage({
+        conversationId: secureChatContext.conversationId,
+        senderUsername: secureChatContext.username,
+        encryptedContent: encrypted.ciphertextB64,
+        iv: encrypted.ivB64,
+        authTag: encrypted.authTagB64,
+        signature,
+        senderKeyId: secureChatContext.senderSigningKeyId,
+        ratchetPublicKey: secureChatContext.senderExchangePublicKey,
+        chainIndex: nextChainIndex,
+      });
+
+      setChatInput("");
+      const nextContext = { ...secureChatContext, chainIndex: nextChainIndex };
+      setSecureChatContext(nextContext);
+      await refreshSecureMessages(nextContext);
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to send encrypted message.",
+      );
+    }
   };
+
+  useEffect(() => {
+    if (!isChatOpen || !secureChatContext) return;
+    void refreshSecureMessages(secureChatContext);
+  }, [isChatOpen, refreshSecureMessages, secureChatContext]);
 
   const startEditTask = (task: ProjectTask) => {
     setEditingTaskId(task.id);
@@ -1751,6 +1916,52 @@ export default function ProjectDetailPage() {
             </div>
 
             <div className="flex-1 space-y-3 overflow-auto p-4">
+              {!secureChatContext && (
+                <div className="rounded-[12px] border border-border bg-[rgba(255,255,255,0.03)] p-3">
+                  <p className="text-xs font-semibold text-muted">E2EE SETUP</p>
+                  <p className="mt-1 text-xs text-muted">
+                    Initialize secure chat keys once per session. Messages are then
+                    encrypted before storage.
+                  </p>
+                  <div className="mt-3 space-y-2">
+                    <input
+                      type="text"
+                      className="input py-2 text-sm"
+                      placeholder="Username"
+                      value={chatUsername}
+                      onChange={(event) => setChatUsername(event.target.value)}
+                    />
+                    <input
+                      type="password"
+                      className="input py-2 text-sm"
+                      placeholder="Passphrase for private key encryption"
+                      value={chatPassphrase}
+                      onChange={(event) => setChatPassphrase(event.target.value)}
+                    />
+                    <button
+                      type="button"
+                      className="btn w-full"
+                      onClick={() => void initializeSecureChat()}
+                      disabled={isBootstrappingChat}
+                    >
+                      {isBootstrappingChat ? "Initializing..." : "Initialize Secure Chat"}
+                    </button>
+                    {secureChatError && (
+                      <p className="text-xs text-[#fda4af]">{secureChatError}</p>
+                    )}
+                  </div>
+                </div>
+              )}
+              {secureChatContext && (
+                <div className="rounded-[12px] border border-border bg-[rgba(255,255,255,0.03)] p-3">
+                  <p className="text-xs font-semibold text-muted">E2EE ACTIVE</p>
+                  <p className="mt-1 text-xs text-muted">
+                    Pre-key consumed: {secureChatContext.consumedPreKeyId ?? "n/a"}.
+                    Per-message ratchet keys + signature verification enabled.
+                  </p>
+                </div>
+              )}
+
               {chatMessages.map((message) => (
                 <div
                   key={message.id}
@@ -1766,6 +1977,16 @@ export default function ProjectDetailPage() {
                     }`}
                   >
                     {message.text}
+                    {message.isSignatureValid === false && (
+                      <p className="mt-1 text-[11px] font-semibold text-[#fda4af]">
+                        Signature check failed
+                      </p>
+                    )}
+                    {message.sender === "user" && typeof message.readByCount === "number" && (
+                      <p className="mt-1 text-[11px] text-background/70">
+                        Read by {message.readByCount}
+                      </p>
+                    )}
                   </div>
                 </div>
               ))}
@@ -1782,15 +2003,15 @@ export default function ProjectDetailPage() {
                   onKeyDown={(event) => {
                     if (event.key === "Enter" && !event.shiftKey) {
                       event.preventDefault();
-                      handleSendMessage();
+                      void handleSendMessage();
                     }
                   }}
                 />
                 <button
                   type="button"
-                  onClick={handleSendMessage}
+                  onClick={() => void handleSendMessage()}
                   className="btn px-4"
-                  disabled={!chatInput.trim()}
+                  disabled={!chatInput.trim() || !secureChatContext}
                 >
                   <svg
                     className="h-5 w-5"

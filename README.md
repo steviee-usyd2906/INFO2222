@@ -33,3 +33,21 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
+## Local HTTPS Setup
+
+To run this project with local TLS (HTTPS), generate local certificates first, then start the custom server:
+
+```bash
+# from Phase_2
+npm install
+mkdir -p certs
+mkcert -install
+mkcert -cert-file certs/localhost.pem -key-file certs/localhost-key.pem localhost 127.0.0.1 ::1
+node server.js
+```
+
+Then open:
+
+- `https://localhost:3000` (main app over HTTPS)
+- `http://localhost:3001` (auto-redirects to HTTPS)
