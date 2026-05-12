@@ -1,20 +1,19 @@
 'use client'
 
-import { createClient } from '@supabase/supabase-js'
+import { createClient } from '@/lib/supabase/client'
 import { useState } from 'react'
 import Link from 'next/link' // Import Link for navigation
+import { useRouter } from 'next/navigation'
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const router = useRouter()
 
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!
-  )
+  const supabase = createClient()
 
   const handleLogin = async () => {
-    const { data, error } = await supabase.auth.signInWithPassword({
+    const { error } = await supabase.auth.signInWithPassword({
       email: email,
       password: password,
     })
@@ -22,7 +21,7 @@ export default function LoginPage() {
     if (error) {
       alert("Login Error: " + error.message)
     } else {
-      alert("Login successful. Welcome: " + data.user?.email)
+      router.replace('/')
     }
   }
 

@@ -6,6 +6,34 @@ export async function updateSession(request: NextRequest) {
     request,
   })
 
+  const { pathname } = request.nextUrl
+  const isAuthRoute = pathname === '/login' || pathname === '/register'
+  const isApiRoute = pathname.startsWith('/api')
+  const hasAuthCookie = request.cookies
+    .getAll()
+    .some(({ name }) =>
+      name === 'supabase-auth-token' ||
+      name.startsWith('supabase-auth-token') ||
+      (name.startsWith('sb-') && name.includes('-auth-token')),
+    )
+
+  if (!hasAuthCookie) {
+    if (isAuthRoute) {
+      return supabaseResponse
+    }
+
+    if (isApiRoute) {
+      return NextResponse.json(
+        { error: 'Authentication required.' },
+        { status: 401 },
+      )
+    }
+
+    const url = request.nextUrl.clone()
+    url.pathname = '/login'
+    return NextResponse.redirect(url)
+  }
+
   // Always create a new client on each request
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -37,23 +65,22 @@ export async function updateSession(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser()
 
-  // Protect routes that require authentication
-  if (
-    request.nextUrl.pathname.startsWith('/protected') &&
-    !user
-  ) {
+  if (!user && !isAuthRoute) {
+    if (isApiRoute) {
+      return NextResponse.json(
+        { error: 'Authentication required.' },
+        { status: 401 },
+      )
+    }
+
     const url = request.nextUrl.clone()
-    url.pathname = '/auth/login'
+    url.pathname = '/login'
     return NextResponse.redirect(url)
   }
 
-  // Protect chat/messaging routes
-  if (
-    request.nextUrl.pathname.startsWith('/chat') &&
-    !user
-  ) {
+  if (user && isAuthRoute) {
     const url = request.nextUrl.clone()
-    url.pathname = '/auth/login'
+    url.pathname = '/'
     return NextResponse.redirect(url)
   }
 

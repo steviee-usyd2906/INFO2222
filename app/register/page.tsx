@@ -1,22 +1,21 @@
 'use client'
 
-import { createClient } from '@supabase/supabase-js'
+import { createClient } from '@/lib/supabase/client'
 import { useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 
 export default function RegisterPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const router = useRouter()
 
   // Initialize Supabase client
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!
-  )
+  const supabase = createClient()
 
   const handleRegister = async () => {
     // Task 1.1 & 1.3: Secure Registration Logic
-    const { data, error } = await supabase.auth.signUp({
+    const { error } = await supabase.auth.signUp({
       email,
       password,
     })
@@ -25,6 +24,7 @@ export default function RegisterPage() {
       alert("Registration Error: " + error.message)
     } else {
       alert("Registration successful! You can now log in.")
+      router.push('/login')
     }
   }
 
