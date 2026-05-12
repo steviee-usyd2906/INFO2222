@@ -31,7 +31,9 @@ const tlsOptions = {
   // Certificate verification / server authentication:
   // The certificate lets the client confirm it is talking to this server identity.
   cert: fs.readFileSync(certPath),
-  minVersion: "TLSv1.2",
+ // minVersion: "TLSv1.2",
+  minVersion: "TLSv1.3",
+  maxVersion: "TLSv1.3"
 };
 
 app.prepare().then(() => {

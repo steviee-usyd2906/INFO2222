@@ -463,9 +463,19 @@ export default function ProjectDetailPage() {
         senderKeyId: secureChatContext.senderSigningKeyId,
         ratchetPublicKey: secureChatContext.senderExchangePublicKey,
         chainIndex: nextChainIndex,
+        // TASK 2 DEMO ONLY - plaintext transport to demonstrate message interception when TLS is disabled
+        // content: chatInput.trim(),
+        // encryptedContent: encrypted.ciphertextB64,
+        // iv: encrypted.ivB64,
+        // authTag: encrypted.authTagB64,
+        // signature,
+        // senderKeyId: secureChatContext.senderSigningKeyId,
+        // ratchetPublicKey: secureChatContext.senderExchangePublicKey,
+        // chainIndex: nextChainIndex,
       });
 
       setChatInput("");
+
       const nextContext = { ...secureChatContext, chainIndex: nextChainIndex };
       setSecureChatContext(nextContext);
       await refreshSecureMessages(nextContext);
